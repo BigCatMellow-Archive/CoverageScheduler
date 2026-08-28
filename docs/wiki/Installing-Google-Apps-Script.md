@@ -34,10 +34,13 @@ Create these script files in Apps Script and copy the matching contents into eac
 
 ```text
 code.gs
+web-ui-data.gs
 teacher-schedule-adapter.gs
 setup.gs
 scheduler.gs
 ```
+
+`web-ui-data.gs` is important. It connects the web interface to `Staff List` and handles adding/editing/removing coverage staff from the UI.
 
 To create a script file:
 
@@ -92,6 +95,7 @@ Check these common causes:
 
 - Code from two different files was accidentally pasted into one file.
 - An HTML file was created as a Script file, or vice versa.
+- `web-ui-data.gs` was skipped.
 - Part of a file was missed while copying.
 - Smart quotes were introduced by another editor.
 
