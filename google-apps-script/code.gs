@@ -34,33 +34,52 @@ function activateCoverageSpreadsheetForWeb_() {
   return ss;
 }
 
+function ensureCoverageWorkbookForWeb_() {
+  const ss = activateCoverageSpreadsheetForWeb_();
+  const required = [
+    'Teacher Schedule',
+    'Coverage Staff',
+    'Substitute Availability',
+    'Daily Absences',
+    'Coverage Output',
+    'Lists',
+    'Config',
+    '_Preview'
+  ];
+  const missing = required.filter(name => !ss.getSheetByName(name));
+  if (missing.length) {
+    setupCoverageWorkbookFromTeacherSchedule();
+  }
+  return ss;
+}
+
 function webGetBootstrap(payload) {
-  activateCoverageSpreadsheetForWeb_();
+  ensureCoverageWorkbookForWeb_();
   return getSidebarBootstrap(payload || {});
 }
 
 function webSaveAbsences(payload) {
-  activateCoverageSpreadsheetForWeb_();
+  ensureCoverageWorkbookForWeb_();
   return replaceDailyAbsences(payload || {});
 }
 
 function webGenerateCoverage(payload) {
-  activateCoverageSpreadsheetForWeb_();
+  ensureCoverageWorkbookForWeb_();
   return generateCoveragePreview(payload || {});
 }
 
 function webToggleCoverageStaff(payload) {
-  activateCoverageSpreadsheetForWeb_();
+  ensureCoverageWorkbookForWeb_();
   return toggleCoverageStaffActive(payload || {});
 }
 
 function webSaveCoverage(rows) {
-  activateCoverageSpreadsheetForWeb_();
+  ensureCoverageWorkbookForWeb_();
   return saveCoveragePlan({ rows: rows || [] });
 }
 
 function webCreateHandout() {
-  activateCoverageSpreadsheetForWeb_();
+  ensureCoverageWorkbookForWeb_();
   const preview = getLatestPreview_();
   const first = preview.rows && preview.rows.length ? preview.rows[0] : null;
   return createCoverageHandoutDocFromCoverageOutput(
@@ -70,7 +89,7 @@ function webCreateHandout() {
 }
 
 function webValidateTeacherSchedule() {
-  activateCoverageSpreadsheetForWeb_();
+  ensureCoverageWorkbookForWeb_();
   return validateTeacherScheduleSource_();
 }
 
