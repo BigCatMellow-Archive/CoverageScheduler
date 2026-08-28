@@ -1,0 +1,23 @@
+# Local school data and exports
+local-data/
+private-data/
+uploads/
+*.xlsx
+*.xls
+*.csv
+*.tsv
+*.ods
+
+# Google Apps Script / clasp local configuration
+.clasp.json
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+*~
