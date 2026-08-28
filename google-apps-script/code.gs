@@ -323,13 +323,19 @@ function ensureCoverageWorkbookReadyForWeb_() {
  * google.script.run only accepts primitives plus objects/arrays made from
  * primitives. Native Sheets dates/times arrive in Apps Script as Date objects,
  * so recursively convert them before returning anything to the browser.
+ * Sheets stores time-only cells on an 1899/1900 date, so preserve those as
+ * display-time strings rather than ISO timestamps.
  */
 function makeWebSafe_(value) {
   if (value === null || value === undefined) return value === undefined ? null : value;
 
   if (Object.prototype.toString.call(value) === '[object Date]') {
     if (isNaN(value.getTime())) return '';
-    return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+    const timeZone = Session.getScriptTimeZone();
+    const year = Number(Utilities.formatDate(value, timeZone, 'yyyy'));
+    return year <= 1900
+      ? Utilities.formatDate(value, timeZone, 'h:mm a')
+      : Utilities.formatDate(value, timeZone, 'yyyy-MM-dd');
   }
 
   if (Array.isArray(value)) {
@@ -478,6 +484,6 @@ function menuCreateHandoutDoc() {
   SpreadsheetApp.getUi().alert(
     'Handout doc created',
     result.name + '\n\n' + result.url,
-    SpreadsheetApp.getUi().ButtonSet.OK
+    ui.ButtonSet.OK
   );
 }
