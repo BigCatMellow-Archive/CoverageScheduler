@@ -3,7 +3,8 @@ const APP_TITLE = 'Coverage Scheduler';
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu(APP_TITLE)
-    .addItem('Set up workbook', 'setupCoverageWorkbook')
+    .addItem('Set up workbook', 'setupCoverageWorkbookFromTeacherSchedule')
+    .addItem('Validate teacher schedule', 'menuValidateTeacherScheduleSource')
     .addItem('Open coverage panel', 'openCoveragePanel')
     .addSeparator()
     .addItem('Generate preview for selected day', 'generateCoveragePreviewFromPrompt')
@@ -61,6 +62,21 @@ function getSidebarBootstrap(payload) {
   };
 }
 
+function menuValidateTeacherScheduleSource() {
+  const result = validateTeacherScheduleSource_();
+  const warningText = result.warnings.length
+    ? '\n\nWarnings:\n- ' + result.warnings.join('\n- ')
+    : '\n\nNo structural issues found.';
+
+  SpreadsheetApp.getUi().alert(
+    'Teacher Schedule check',
+    'Rows: ' + result.rowCount +
+      '\nTeachers: ' + result.teacherCount +
+      '\nTerms: ' + (result.terms.length ? result.terms.join(', ') : 'none') +
+      warningText,
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
 
 function menuCreateHandoutDoc() {
   const result = createCoverageHandoutDocFromLatestPreview();
