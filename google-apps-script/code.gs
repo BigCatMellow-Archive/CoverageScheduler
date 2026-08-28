@@ -2,6 +2,10 @@ const APP_TITLE = 'Coverage Scheduler';
 const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
 
 function onOpen() {
+  // Because this project is spreadsheet-bound, simply opening/reloading the
+  // workbook is enough to remember it for the standalone web app.
+  rememberCoverageSpreadsheet_();
+
   SpreadsheetApp.getUi()
     .createMenu(APP_TITLE)
     .addItem('Set up workbook', 'setupCoverageScheduler')
@@ -18,19 +22,33 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
-function setupCoverageScheduler() {
+/**
+ * Remembers the currently open bound spreadsheet for standalone web-app calls.
+ * Safe to call repeatedly; it simply refreshes the stored spreadsheet id.
+ */
+function rememberCoverageSpreadsheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) {
-    throw new Error('Open the Google Sheet that will hold Coverage Scheduler, then run setup again from Extensions → Apps Script.');
-  }
+  if (!ss) return null;
 
   PropertiesService.getScriptProperties()
     .setProperty(COVERAGE_SPREADSHEET_PROPERTY, ss.getId());
 
+  return ss;
+}
+
+/**
+ * One-time setup entry point. Run this from the spreadsheet that should own the
+ * scheduler. It remembers that spreadsheet for the standalone web app and then
+ * creates/repairs the scheduler-managed tabs.
+ */
+function setupCoverageScheduler() {
+  const ss = rememberCoverageSpreadsheet_();
+  if (!ss) {
+    throw new Error('Open the Google Sheet that will hold Coverage Scheduler, then run setup again from Extensions → Apps Script.');
+  }
+
   SpreadsheetApp.setActiveSpreadsheet(ss);
-  const result = setupCoverageWorkbookFromTeacherSchedule();
-  ensureStaffListSheet_();
-  return result;
+  return setupCoverageWorkbookFromTeacherSchedule();
 }
 
 function doGet() {
@@ -40,13 +58,18 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
+/**
+ * Web-app executions do not have a user-visible spreadsheet selected. The
+ * bound spreadsheet stores its id in Script Properties so every web request
+ * can reopen the correct workbook without hard-coding a private id.
+ */
 function activateCoverageSpreadsheetForWeb_() {
   const spreadsheetId = PropertiesService.getScriptProperties()
     .getProperty(COVERAGE_SPREADSHEET_PROPERTY);
 
   if (!spreadsheetId) {
     throw new Error(
-      'Coverage Scheduler has not been connected to a workbook yet. Open the target Google Sheet, reload it, then choose Coverage Scheduler → Set up workbook before using the web app.'
+      'Coverage Scheduler has not been connected to a workbook yet. Reload the Google Sheet that contains this Apps Script project, then reopen the web app.'
     );
   }
 
@@ -72,25 +95,14 @@ function ensureCoverageWorkbookReadyForWeb_() {
   if (missing.length) {
     setupCoverageWorkbookFromTeacherSchedule();
   }
-  ensureStaffListSheet_();
+
+  ensureStaffListForWeb_();
   return ss;
 }
 
 function webGetBootstrap(payload) {
   ensureCoverageWorkbookReadyForWeb_();
-  payload = payload || {};
-  const today = payload.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  const dayCode = payload.day || guessDayCodeFromDate_(today);
-
-  return {
-    today: today,
-    day: dayCode,
-    allStaff: getWebStaffRoster_(dayCode),
-    allCoverageStaff: getAllCoverageStaff_(today, dayCode),
-    currentAbsences: getDailyAbsencesForDate_(today, dayCode),
-    currentPreview: getLatestPreview_(today, dayCode),
-    config: getConfigMap_()
-  };
+  return getSidebarBootstrap(payload || {});
 }
 
 function webSaveAbsences(payload) {
@@ -170,7 +182,9 @@ function getSidebarBootstrap(payload) {
   return {
     today: today,
     day: dayCode,
-    allStaff: getAllSchedulableStaff_(dayCode),
+    allStaff: typeof getWebStaffRoster_ === 'function'
+      ? getWebStaffRoster_(dayCode)
+      : getAllSchedulableStaff_(dayCode),
     allCoverageStaff: getAllCoverageStaff_(today, dayCode),
     currentAbsences: getDailyAbsencesForDate_(today, dayCode),
     currentPreview: getLatestPreview_(today, dayCode),
