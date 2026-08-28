@@ -1,10 +1,10 @@
 const APP_TITLE = 'Coverage Scheduler';
-const COVERAGE_SPREADSHEET_ID = '1tLR_QPQyHD-w_FlAjb1HYtjxY6NLVy4E-WLmIln8AK8';
+const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
 
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu(APP_TITLE)
-    .addItem('Set up workbook', 'setupCoverageWorkbookFromTeacherSchedule')
+    .addItem('Set up workbook', 'setupCoverageScheduler')
     .addItem('Validate teacher schedule', 'menuValidateTeacherScheduleSource')
     .addItem('Open coverage panel', 'openCoveragePanel')
     .addSeparator()
@@ -18,25 +18,55 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
+/**
+ * One-time setup entry point. Run this from the spreadsheet that should own the
+ * scheduler. It remembers that spreadsheet for the standalone web app and then
+ * creates/repairs the scheduler-managed tabs.
+ */
+function setupCoverageScheduler() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) {
+    throw new Error('Open the Google Sheet that will hold Coverage Scheduler, then run setup again from Extensions → Apps Script.');
+  }
+
+  PropertiesService.getScriptProperties()
+    .setProperty(COVERAGE_SPREADSHEET_PROPERTY, ss.getId());
+
+  SpreadsheetApp.setActiveSpreadsheet(ss);
+  return setupCoverageWorkbookFromTeacherSchedule();
+}
+
 function doGet() {
-  activateCoverageSpreadsheetForWeb_();
   return HtmlService.createTemplateFromFile('index')
     .evaluate()
     .setTitle(APP_TITLE)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
+/**
+ * Web-app executions do not have a user-visible spreadsheet selected. The
+ * setup command stores the spreadsheet id in Script Properties so every web
+ * request can reopen the correct workbook without hard-coding a private id in
+ * the repository.
+ */
 function activateCoverageSpreadsheetForWeb_() {
-  const active = SpreadsheetApp.getActiveSpreadsheet();
-  if (active && active.getId() === COVERAGE_SPREADSHEET_ID) return active;
-  const ss = SpreadsheetApp.openById(COVERAGE_SPREADSHEET_ID);
+  const spreadsheetId = PropertiesService.getScriptProperties()
+    .getProperty(COVERAGE_SPREADSHEET_PROPERTY);
+
+  if (!spreadsheetId) {
+    throw new Error(
+      'Coverage Scheduler has not been connected to a workbook yet. Open the target Google Sheet, reload it, then choose Coverage Scheduler → Set up workbook before using the web app.'
+    );
+  }
+
+  const ss = SpreadsheetApp.openById(spreadsheetId);
   SpreadsheetApp.setActiveSpreadsheet(ss);
   return ss;
 }
 
-function ensureCoverageWorkbookForWeb_() {
+function ensureCoverageWorkbookReadyForWeb_() {
   const ss = activateCoverageSpreadsheetForWeb_();
-  const required = [
+  const requiredSheets = [
     'Teacher Schedule',
     'Coverage Staff',
     'Substitute Availability',
@@ -46,7 +76,8 @@ function ensureCoverageWorkbookForWeb_() {
     'Config',
     '_Preview'
   ];
-  const missing = required.filter(name => !ss.getSheetByName(name));
+
+  const missing = requiredSheets.filter(name => !ss.getSheetByName(name));
   if (missing.length) {
     setupCoverageWorkbookFromTeacherSchedule();
   }
@@ -54,42 +85,37 @@ function ensureCoverageWorkbookForWeb_() {
 }
 
 function webGetBootstrap(payload) {
-  ensureCoverageWorkbookForWeb_();
+  ensureCoverageWorkbookReadyForWeb_();
   return getSidebarBootstrap(payload || {});
 }
 
 function webSaveAbsences(payload) {
-  ensureCoverageWorkbookForWeb_();
+  ensureCoverageWorkbookReadyForWeb_();
   return replaceDailyAbsences(payload || {});
 }
 
 function webGenerateCoverage(payload) {
-  ensureCoverageWorkbookForWeb_();
+  ensureCoverageWorkbookReadyForWeb_();
   return generateCoveragePreview(payload || {});
 }
 
 function webToggleCoverageStaff(payload) {
-  ensureCoverageWorkbookForWeb_();
+  ensureCoverageWorkbookReadyForWeb_();
   return toggleCoverageStaffActive(payload || {});
 }
 
 function webSaveCoverage(rows) {
-  ensureCoverageWorkbookForWeb_();
+  ensureCoverageWorkbookReadyForWeb_();
   return saveCoveragePlan({ rows: rows || [] });
 }
 
 function webCreateHandout() {
-  ensureCoverageWorkbookForWeb_();
-  const preview = getLatestPreview_();
-  const first = preview.rows && preview.rows.length ? preview.rows[0] : null;
-  return createCoverageHandoutDocFromCoverageOutput(
-    first ? first.Date : '',
-    first ? first.Day : ''
-  );
+  ensureCoverageWorkbookReadyForWeb_();
+  return createCoverageHandoutDocFromLatestPreview();
 }
 
 function webValidateTeacherSchedule() {
-  ensureCoverageWorkbookForWeb_();
+  ensureCoverageWorkbookReadyForWeb_();
   return validateTeacherScheduleSource_();
 }
 
