@@ -61,7 +61,12 @@ function webSaveCoverage(rows) {
 
 function webCreateHandout() {
   activateCoverageSpreadsheetForWeb_();
-  return createCoverageHandoutDocFromCoverageOutput();
+  const preview = getLatestPreview_();
+  const first = preview.rows && preview.rows.length ? preview.rows[0] : null;
+  return createCoverageHandoutDocFromCoverageOutput(
+    first ? first.Date : '',
+    first ? first.Day : ''
+  );
 }
 
 function webValidateTeacherSchedule() {
