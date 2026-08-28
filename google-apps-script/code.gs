@@ -136,15 +136,39 @@ function ensureCoverageWorkbookReadyForWeb_() {
 }
 
 /**
- * Convert the bootstrap response into a plain JSON-safe object before handing
- * it to google.script.run. Spreadsheet cells can contain Date values and other
- * Apps Script values that should not leak into the client payload directly.
+ * google.script.run only accepts primitives plus objects/arrays made from
+ * primitives. Native Sheets dates/times arrive in Apps Script as Date objects,
+ * so recursively convert them before returning anything to the browser.
  */
 function makeWebSafe_(value) {
-  return JSON.parse(JSON.stringify(value, function(key, item) {
-    if (typeof item === 'number' && !isFinite(item)) return '';
-    return item;
-  }));
+  if (value === null || value === undefined) return value === undefined ? null : value;
+
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    if (isNaN(value.getTime())) return '';
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(item => makeWebSafe_(item));
+  }
+
+  if (typeof value === 'number') {
+    return isFinite(value) ? value : '';
+  }
+
+  if (typeof value === 'string' || typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'object') {
+    const out = {};
+    Object.keys(value).forEach(key => {
+      out[key] = makeWebSafe_(value[key]);
+    });
+    return out;
+  }
+
+  return String(value);
 }
 
 function webGetBootstrap(payload) {
@@ -153,7 +177,13 @@ function webGetBootstrap(payload) {
   if (!data) {
     throw new Error('Coverage Scheduler could not build its startup data.');
   }
-  return makeWebSafe_(data);
+
+  const safe = makeWebSafe_(data);
+  if (!safe || !safe.today) {
+    throw new Error('Coverage Scheduler startup data was invalid before it reached the browser.');
+  }
+
+  return safe;
 }
 
 function webSaveAbsences(payload) {
