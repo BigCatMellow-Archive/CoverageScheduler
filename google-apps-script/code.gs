@@ -184,6 +184,7 @@ function getWorkingOverlayUi_() {
     '(function(){',
     '  var workingCount=0;',
     '  var messages={',
+    "    webGetBootstrap:['Loading date…','Loading absences, coverage staff, and the saved plan.'],",
     "    webGenerateCoverage:['Generating coverage plan…','Matching schedules and available coverage staff.'],",
     "    webCreateHandout:['Building handout…','Creating and formatting the Google Doc.'],",
     "    webSaveCoverage:['Saving coverage plan…','Writing the plan to Coverage Output.'],",
