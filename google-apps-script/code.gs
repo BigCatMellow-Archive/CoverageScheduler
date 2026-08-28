@@ -484,6 +484,6 @@ function menuCreateHandoutDoc() {
   SpreadsheetApp.getUi().alert(
     'Handout doc created',
     result.name + '\n\n' + result.url,
-    ui.ButtonSet.OK
+    SpreadsheetApp.getUi().ButtonSet.OK
   );
 }
