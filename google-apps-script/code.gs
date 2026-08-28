@@ -52,13 +52,15 @@ function setupCoverageScheduler() {
 }
 
 function doGet() {
-  const evaluated = HtmlService.createTemplateFromFile('index').evaluate();
-  const html = evaluated.getContent().replace(
-    '</body>',
-    getHandoutOpenLinkUi_() + '\n</body>'
-  );
+  const output = HtmlService.createTemplateFromFile('index')
+    .evaluate();
 
-  return HtmlService.createHtmlOutput(html)
+  // Append the small Handout-link enhancement to the already-evaluated output.
+  // Do not rebuild a second HtmlOutput from getContent(); doing so can interfere
+  // with the Apps Script client/server bridge used by google.script.run.
+  output.append(getHandoutOpenLinkUi_());
+
+  return output
     .setTitle(APP_TITLE)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
@@ -133,9 +135,25 @@ function ensureCoverageWorkbookReadyForWeb_() {
   return ss;
 }
 
+/**
+ * Convert the bootstrap response into a plain JSON-safe object before handing
+ * it to google.script.run. Spreadsheet cells can contain Date values and other
+ * Apps Script values that should not leak into the client payload directly.
+ */
+function makeWebSafe_(value) {
+  return JSON.parse(JSON.stringify(value, function(key, item) {
+    if (typeof item === 'number' && !isFinite(item)) return '';
+    return item;
+  }));
+}
+
 function webGetBootstrap(payload) {
   ensureCoverageWorkbookReadyForWeb_();
-  return getSidebarBootstrap(payload || {});
+  const data = getSidebarBootstrap(payload || {});
+  if (!data) {
+    throw new Error('Coverage Scheduler could not build its startup data.');
+  }
+  return makeWebSafe_(data);
 }
 
 function webSaveAbsences(payload) {
