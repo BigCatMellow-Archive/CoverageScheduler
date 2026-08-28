@@ -18,11 +18,6 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
-/**
- * One-time setup entry point. Run this from the spreadsheet that should own the
- * scheduler. It remembers that spreadsheet for the standalone web app and then
- * creates/repairs the scheduler-managed tabs.
- */
 function setupCoverageScheduler() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) {
@@ -43,12 +38,6 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
-/**
- * Web-app executions do not have a user-visible spreadsheet selected. The
- * setup command stores the spreadsheet id in Script Properties so every web
- * request can reopen the correct workbook without hard-coding a private id in
- * the repository.
- */
 function activateCoverageSpreadsheetForWeb_() {
   const spreadsheetId = PropertiesService.getScriptProperties()
     .getProperty(COVERAGE_SPREADSHEET_PROPERTY);
@@ -86,7 +75,19 @@ function ensureCoverageWorkbookReadyForWeb_() {
 
 function webGetBootstrap(payload) {
   ensureCoverageWorkbookReadyForWeb_();
-  return getSidebarBootstrap(payload || {});
+  payload = payload || {};
+  const today = payload.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const dayCode = payload.day || guessDayCodeFromDate_(today);
+
+  return {
+    today: today,
+    day: dayCode,
+    allStaff: getWebStaffRoster_(dayCode),
+    allCoverageStaff: getAllCoverageStaff_(today, dayCode),
+    currentAbsences: getDailyAbsencesForDate_(today, dayCode),
+    currentPreview: getLatestPreview_(today, dayCode),
+    config: getConfigMap_()
+  };
 }
 
 function webSaveAbsences(payload) {
@@ -102,6 +103,16 @@ function webGenerateCoverage(payload) {
 function webToggleCoverageStaff(payload) {
   ensureCoverageWorkbookReadyForWeb_();
   return toggleCoverageStaffActive(payload || {});
+}
+
+function webSaveCoverageStaff(payload) {
+  ensureCoverageWorkbookReadyForWeb_();
+  return saveCoverageStaffFromWeb_(payload || {});
+}
+
+function webDeleteCoverageStaff(payload) {
+  ensureCoverageWorkbookReadyForWeb_();
+  return deleteCoverageStaffFromWeb_(payload || {});
 }
 
 function webSaveCoverage(rows) {
