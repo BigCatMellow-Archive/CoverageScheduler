@@ -9,6 +9,7 @@ For a complete first-time-user walkthrough, start with [`docs/wiki/Home.md`](../
 ## Files
 
 - `code.gs` — web-app entry point, spreadsheet menu, workbook binding, and server wrappers
+- `web-ui-data.gs` — Staff List roster adapter and coverage-team create/edit/remove functions
 - `index.html` — full-page Coverage Scheduler interface
 - `teacher-schedule-adapter.gs` — preserves and validates the existing Teacher Schedule source
 - `setup.gs` — managed workbook sheets, validation, and defaults
@@ -18,21 +19,23 @@ For a complete first-time-user walkthrough, start with [`docs/wiki/Home.md`](../
 - `sidebarjs.html` — optional sidebar browser logic
 - `appsscript.json` — Apps Script project manifest
 
-## Teacher Schedule source
+## Teacher Schedule and Staff List
 
-The preferred `Teacher Schedule` tab is the operational schedule format:
+The preferred `Teacher Schedule` tab is:
 
 ```text
 Teacher | Term | Day | Start | End | Class | Subject | Room
 ```
 
-The scheduler reads this sheet directly. It does **not** require extra Grade, Assignment Type, coverage-needed, or cover-eligible columns. Those values are inferred at runtime from Class, Subject, and the block times.
+The scheduler reads this sheet directly. `Start` and `End` are authoritative; fixed school periods are not required.
 
-`Start` and `End` are authoritative. The scheduler does not assume fixed school periods, so 30-, 45-, 60-, 90-, and other block lengths can coexist.
+The web app uses a separate `Staff List` tab as the roster shown in **+ Add Absence**. Its required header is simply:
 
-Break/planning rows are treated as possible coverage availability for staff who are also listed in `Coverage Staff`; teaching, homeroom, and duty rows are treated as occupied time.
+```text
+Teacher
+```
 
-The `Term` column is currently informational when all rows are `All Year`. If seasonal/non-`All Year` terms are introduced, the validation command warns that date-to-term mapping needs to be added before those rows can be filtered automatically.
+If `Staff List` does not exist or is empty, setup creates it and seeds unique teacher names from `Teacher Schedule`. If it already contains names, the app leaves it alone and treats it as the roster source.
 
 ## Install
 
@@ -41,6 +44,7 @@ The `Term` column is currently informational when all rows are `All Year`. If se
 3. Go to **Extensions → Apps Script**.
 4. Create matching files and copy in the contents from this folder:
    - `code.gs`
+   - `web-ui-data.gs`
    - `teacher-schedule-adapter.gs`
    - `setup.gs`
    - `scheduler.gs`
@@ -50,11 +54,10 @@ The `Term` column is currently informational when all rows are `All Year`. If se
    - `sidebarjs.html`
 5. If the manifest is hidden, open **Project Settings** and enable **Show `appsscript.json` manifest file in editor**, then replace it with this folder's manifest.
 6. Save the project and reload the spreadsheet.
-7. Choose **Coverage Scheduler → Set up workbook**. This both creates the required scheduler tabs and remembers this spreadsheet for the standalone web app.
+7. Choose **Coverage Scheduler → Set up workbook**. This creates the scheduler tabs, creates/seeds `Staff List` when needed, and remembers this spreadsheet for the standalone web app.
 8. Choose **Coverage Scheduler → Validate teacher schedule**.
-9. Populate `Coverage Staff` with the people who are allowed to provide coverage.
 
-Set up creates or repairs the scheduler-managed tabs but leaves the existing `Teacher Schedule` data and layout alone.
+You do **not** need to manually edit `Coverage Staff` for normal use. Open the web app and use **+ Coverage Staff** to add or edit the coverage team.
 
 ## Deploy the full-page interface
 
@@ -64,7 +67,7 @@ Set up creates or repairs the scheduler-managed tabs but leaves the existing `Te
 4. Deploy and authorize the requested Google Sheets/Docs permissions.
 5. Open the generated `/exec` URL.
 
-The web UI supports the normal workflow: choose a date, add/edit absences, toggle coverage staff availability, generate the plan, inspect Timeline/Table/By Sub views, manually reassign blocks, save output, and create the handout document.
+The web UI supports the normal workflow: choose a date, add/edit absences, create/edit/remove coverage staff, toggle daily coverage availability, generate the plan, inspect Timeline/Table/By Sub views, manually reassign blocks, save output, and create the handout document.
 
 ## Workbook binding
 
