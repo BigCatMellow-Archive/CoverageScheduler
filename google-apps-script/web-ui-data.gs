@@ -1,15 +1,30 @@
-function getWebStaffRoster_(dayCode) {
+function ensureStaffListSheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const staffSheet = ss.getSheetByName('Staff List');
-
-  if (!staffSheet || staffSheet.getLastRow() < 2) {
-    return getAllSchedulableStaff_(dayCode).map(item => Object.assign({}, item, {
-      scheduleName: item.name,
-      displayName: item.name,
-      subject: summarizeRosterSubjects_(item.blocks || [])
-    }));
+  let sheet = ss.getSheetByName('Staff List');
+  if (!sheet) {
+    sheet = ss.insertSheet('Staff List');
+    sheet.getRange('A1').setValue('Teacher').setFontWeight('bold');
+    sheet.setFrozenRows(1);
   }
 
+  if (sheet.getLastRow() < 2) {
+    const names = {};
+    readSheetObjects_('Teacher Schedule')
+      .map(row => normalizeTeacherScheduleRow_(row))
+      .forEach(row => {
+        const name = String(row.staffName || '').trim();
+        if (name) names[name] = true;
+      });
+    const sorted = Object.keys(names).sort((a, b) => a.localeCompare(b));
+    if (sorted.length) {
+      sheet.getRange(2, 1, sorted.length, 1).setValues(sorted.map(name => [name]));
+    }
+  }
+  return sheet;
+}
+
+function getWebStaffRoster_(dayCode) {
+  const staffSheet = ensureStaffListSheet_();
   const values = staffSheet.getDataRange().getValues();
   const headers = values[0].map(value => String(value || '').trim());
   const teacherCol = findRosterColumn_(headers, ['Teacher', 'Staff', 'Staff Name', 'Name']);
