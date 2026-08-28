@@ -52,10 +52,43 @@ function setupCoverageScheduler() {
 }
 
 function doGet() {
-  return HtmlService.createTemplateFromFile('index')
-    .evaluate()
+  const evaluated = HtmlService.createTemplateFromFile('index').evaluate();
+  const html = evaluated.getContent().replace(
+    '</body>',
+    getHandoutOpenLinkUi_() + '\n</body>'
+  );
+
+  return HtmlService.createHtmlOutput(html)
     .setTitle(APP_TITLE)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/**
+ * The main index keeps its generic notification banner. This small injected
+ * override makes the Handout action display the returned Google Doc URL as an
+ * immediate Open Handout action, without changing the rest of the UI flow.
+ */
+function getHandoutOpenLinkUi_() {
+  return [
+    '<style>',
+    '.notif .handout-open{display:inline-flex;align-items:center;margin-left:6px;padding:4px 8px;border-radius:6px;background:#166534;color:#fff;text-decoration:none;font-size:11px;font-weight:800;white-space:nowrap}',
+    '.notif .handout-open:hover{background:#14532d}',
+    '</style>',
+    '<script>',
+    'handout = async function(){',
+    '  try{',
+    "    const r=await gas('webCreateHandout',{});",
+    "    const n=$('notif');",
+    "    const name=(r&&r.name)?r.name:'Google Doc';",
+    "    const url=(r&&r.url)?r.url:'';",
+    "    n.className='notif ok';",
+    "    n.innerHTML='✓ Handout created: '+esc(name)+(url?' <a class=\"handout-open\" href=\"'+esc(url)+'\" target=\"_blank\" rel=\"noopener noreferrer\">Open Handout ↗</a>':'')+'<button onclick=\"this.parentElement.classList.add(\\\'hidden\\\')\">×</button>';",
+    "    n.classList.remove('hidden');",
+    "    clearTimeout(flash.t);",
+    '  }catch(e){fail(e)}',
+    '};',
+    '</script>'
+  ].join('\n');
 }
 
 /**
