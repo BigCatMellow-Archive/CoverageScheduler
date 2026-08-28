@@ -12,6 +12,16 @@ const TEACHER_SCHEDULE_SOURCE_HEADERS = ['Teacher', 'Term', 'Day', 'Start', 'End
  */
 function setupCoverageWorkbookFromTeacherSchedule() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) {
+    throw new Error('Open the Google Sheet that will hold Coverage Scheduler before running setup.');
+  }
+
+  // Keep the standalone web app connected even when this lower-level setup
+  // function is run directly from the Apps Script editor.
+  if (typeof rememberCoverageSpreadsheet_ === 'function') {
+    rememberCoverageSpreadsheet_();
+  }
+
   let teacherSheet = ss.getSheetByName('Teacher Schedule');
 
   if (!teacherSheet) {
@@ -48,6 +58,10 @@ function setupCoverageWorkbookFromTeacherSchedule() {
   seedConfig_();
   applyDataValidation_();
   hideHelperSheets_();
+
+  if (typeof ensureStaffListForWeb_ === 'function') {
+    ensureStaffListForWeb_();
+  }
 
   const warningSuffix = inspection.warnings.length
     ? ' ' + inspection.warnings.length + ' schedule warning(s) found; use Coverage Scheduler → Validate teacher schedule.'
