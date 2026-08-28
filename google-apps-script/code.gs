@@ -137,7 +137,7 @@ function webSaveCoverage(rows) {
 
 function webCreateHandout() {
   ensureCoverageWorkbookReadyForWeb_();
-  return createCoverageHandoutDocFromLatestPreview();
+  return createCoverageHandoutDocWideFromLatestPreview_();
 }
 
 function webValidateTeacherSchedule() {
@@ -209,7 +209,7 @@ function menuValidateTeacherScheduleSource() {
 }
 
 function menuCreateHandoutDoc() {
-  const result = createCoverageHandoutDocFromLatestPreview();
+  const result = createCoverageHandoutDocWideFromLatestPreview_();
   SpreadsheetApp.getUi().alert(
     'Handout doc created',
     result.name + '\n\n' + result.url,
