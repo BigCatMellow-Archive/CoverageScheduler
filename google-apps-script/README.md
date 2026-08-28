@@ -10,10 +10,11 @@ For a complete first-time-user walkthrough, start with [`docs/wiki/Home.md`](../
 
 - `code.gs` — web-app entry point, spreadsheet menu, workbook binding, and server wrappers
 - `web-ui-data.gs` — Staff List roster adapter and coverage-team create/edit/remove functions
+- `handout.gs` — full-width, print-friendly Google Docs coverage handouts
 - `index.html` — full-page Coverage Scheduler interface
 - `teacher-schedule-adapter.gs` — preserves and validates the existing Teacher Schedule source
 - `setup.gs` — managed workbook sheets, validation, and defaults
-- `scheduler.gs` — scheduling engine and Google Docs handout generation
+- `scheduler.gs` — scheduling engine, normalization, preview, and saved output
 - `sidebar.html` — optional spreadsheet sidebar markup
 - `sidebarcss.html` — optional sidebar styles
 - `sidebarjs.html` — optional sidebar browser logic
@@ -45,6 +46,7 @@ If `Staff List` does not exist or is empty, setup creates it and seeds unique te
 4. Create matching files and copy in the contents from this folder:
    - `code.gs`
    - `web-ui-data.gs`
+   - `handout.gs`
    - `teacher-schedule-adapter.gs`
    - `setup.gs`
    - `scheduler.gs`
@@ -68,6 +70,10 @@ You do **not** need to manually edit `Coverage Staff` for normal use. Open the w
 5. Open the generated `/exec` URL.
 
 The web UI supports the normal workflow: choose a date, add/edit absences, create/edit/remove coverage staff, toggle daily coverage availability, generate the plan, inspect Timeline/Table/By Sub views, manually reassign blocks, save output, and create the handout document.
+
+## Handouts
+
+`handout.gs` creates one landscape page per coverage person with a full-width assignment table. The time column is intentionally wide enough for normal time ranges to stay on one line, while compact cell padding keeps rows short. The table uses the full printable width of the page with larger Subject and Absent Teacher columns for easier scanning.
 
 ## Workbook binding
 
