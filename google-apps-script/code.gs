@@ -2,8 +2,6 @@ const APP_TITLE = 'Coverage Scheduler';
 const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
 
 function onOpen() {
-  // Because this project is spreadsheet-bound, simply opening/reloading the
-  // workbook is enough to remember it for the standalone web app.
   rememberCoverageSpreadsheet_();
 
   SpreadsheetApp.getUi()
@@ -22,10 +20,6 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
-/**
- * Remembers the currently open bound spreadsheet for standalone web-app calls.
- * Safe to call repeatedly; it simply refreshes the stored spreadsheet id.
- */
 function rememberCoverageSpreadsheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) return null;
@@ -36,11 +30,6 @@ function rememberCoverageSpreadsheet_() {
   return ss;
 }
 
-/**
- * One-time setup entry point. Run this from the spreadsheet that should own the
- * scheduler. It remembers that spreadsheet for the standalone web app and then
- * creates/repairs the scheduler-managed tabs.
- */
 function setupCoverageScheduler() {
   const ss = rememberCoverageSpreadsheet_();
   if (!ss) {
@@ -52,18 +41,11 @@ function setupCoverageScheduler() {
 }
 
 function doGet() {
-  const output = HtmlService.createTemplateFromFile('index')
-    .evaluate();
+  const output = HtmlService.createTemplateFromFile('index').evaluate();
 
-  // Keep the web app aligned with the shared Nysmith school-project theme.
   output.append(getSchoolThemeCss_());
-
-  // Give all noticeable server actions one consistent working/progress state.
   output.append(getWorkingOverlayUi_());
-
-  // Append the small Handout-link enhancement to the already-evaluated output.
-  // Do not rebuild a second HtmlOutput from getContent(); doing so can interfere
-  // with the Apps Script client/server bridge used by google.script.run.
+  output.append(getAbsenceRangeUi_());
   output.append(getHandoutOpenLinkUi_());
 
   return output
@@ -71,10 +53,6 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
-/**
- * Shared school-project visual language. This intentionally overrides the old
- * indigo/purple accents in index.html without changing the scheduler layout.
- */
 function getSchoolThemeCss_() {
   return [
     '<style>',
@@ -164,11 +142,6 @@ function getSchoolThemeCss_() {
   ].join('\n');
 }
 
-/**
- * Adds a single modal working state for server actions that may take long enough
- * for a user to wonder whether their click registered. It wraps the existing
- * gas() helper so every current and future caller gets the same behavior.
- */
 function getWorkingOverlayUi_() {
   return [
     '<style>',
@@ -189,6 +162,7 @@ function getWorkingOverlayUi_() {
     "    webCreateHandout:['Building handout…','Creating and formatting the Google Doc.'],",
     "    webSaveCoverage:['Saving coverage plan…','Writing the plan to Coverage Output.'],",
     "    webSaveAbsences:['Saving absences…','Updating the selected day.'],",
+    "    webSaveAbsenceRange:['Saving absence dates…','Adding the absence to each selected school day.'],",
     "    webSaveCoverageStaff:['Saving coverage staff…','Updating the coverage team.'],",
     "    webDeleteCoverageStaff:['Removing coverage staff…','Updating the coverage team.'],",
     "    webToggleCoverageStaff:['Updating availability…','Saving the daily availability change.'],",
@@ -250,11 +224,123 @@ function getWorkingOverlayUi_() {
   ].join('\n');
 }
 
-/**
- * The main index keeps its generic notification banner. This small injected
- * override makes the Handout action display the returned Google Doc URL as an
- * immediate Open Handout action, without changing the rest of the UI flow.
- */
+function getAbsenceRangeUi_() {
+  return [
+    '<style>',
+    '.absence-range-box{padding:11px;background:#f7f8fb;border:1px solid var(--border,#e2e5eb);border-radius:var(--radius-sm,10px)}',
+    '.absence-range-box .fg{margin-bottom:0}',
+    '.absence-range-presets{display:flex;gap:6px;margin-top:8px}',
+    '.absence-range-presets button{border:1px solid #d7dce5;background:#fff;color:var(--primary,#214289);border-radius:7px;padding:5px 8px;font-size:10px;font-weight:750}',
+    '.absence-range-presets button:hover{border-color:var(--primary,#214289);background:rgba(33,66,137,.045)}',
+    '.absence-range-error{color:var(--error,#dc2626)!important}',
+    '</style>',
+    '<script>',
+    '(function(){',
+    "  var staff=document.getElementById('absenceStaff');",
+    '  if(!staff)return;',
+    "  var staffGroup=staff.closest('.fg');",
+    "  var range=document.createElement('div');",
+    "  range.id='absenceDateRange';",
+    "  range.className='fg absence-range-box';",
+    "  range.innerHTML='<label class=\"fl\">Dates</label><div class=\"f-row\"><div class=\"fg\"><label class=\"fl\" style=\"text-transform:none;letter-spacing:0\">From</label><input id=\"absenceDateFrom\" type=\"date\" class=\"fi\"></div><div class=\"fg\"><label class=\"fl\" style=\"text-transform:none;letter-spacing:0\">Through</label><input id=\"absenceDateThrough\" type=\"date\" class=\"fi\"></div></div><div class=\"absence-range-presets\"><button type=\"button\" id=\"absenceOneDay\">This day only</button><button type=\"button\" id=\"absenceFiveDays\">5 school days</button></div><div id=\"absenceDateHint\" class=\"hint\"></div>';",
+    '  staffGroup.parentNode.insertBefore(range,staffGroup.nextSibling);',
+    '',
+    '  function parseDate(value){',
+    "    var p=String(value||'').split('-').map(Number);",
+    '    if(p.length!==3||!p[0]||!p[1]||!p[2])return null;',
+    '    return new Date(p[0],p[1]-1,p[2],12,0,0,0);',
+    '  }',
+    '  function dateKey(d){',
+    "    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');",
+    '  }',
+    '  function schoolDayCount(from,to){',
+    '    var a=parseDate(from),b=parseDate(to);',
+    '    if(!a||!b||b<a)return 0;',
+    '    var count=0,guard=0;',
+    '    while(a<=b&&guard<70){var day=a.getDay();if(day!==0&&day!==6)count++;a.setDate(a.getDate()+1);guard++;}',
+    '    return count;',
+    '  }',
+    '  function fiveSchoolDayEnd(start){',
+    '    var d=parseDate(start);if(!d)return start;',
+    '    var count=0,guard=0;',
+    '    while(count<5&&guard<14){var day=d.getDay();if(day!==0&&day!==6)count++;if(count<5)d.setDate(d.getDate()+1);guard++;}',
+    '    return dateKey(d);',
+    '  }',
+    '  function updateRangeHint(){',
+    "    var from=document.getElementById('absenceDateFrom').value;",
+    "    var through=document.getElementById('absenceDateThrough').value;",
+    "    var hint=document.getElementById('absenceDateHint');",
+    "    hint.classList.remove('absence-range-error');",
+    "    if(!from||!through){hint.textContent='Choose the date or range. Weekends are skipped automatically.';return;}",
+    "    if(through<from){hint.textContent='Through date must be the same as or after From.';hint.classList.add('absence-range-error');return;}",
+    '    var count=schoolDayCount(from,through);',
+    "    hint.textContent=count+' school day'+(count===1?'':'s')+' selected. Weekends are skipped automatically.';",
+    '  }',
+    '',
+    "  document.getElementById('absenceDateFrom').addEventListener('change',function(){",
+    "    var through=document.getElementById('absenceDateThrough');",
+    '    if(!through.value||through.value<this.value)through.value=this.value;',
+    '    updateRangeHint();',
+    "    if(typeof updateAbsenceScheduleHint==='function')updateAbsenceScheduleHint();",
+    '  });',
+    "  document.getElementById('absenceDateThrough').addEventListener('change',updateRangeHint);",
+    "  document.getElementById('absenceOneDay').addEventListener('click',function(){var from=document.getElementById('absenceDateFrom');var through=document.getElementById('absenceDateThrough');through.value=from.value||S.date;updateRangeHint();});",
+    "  document.getElementById('absenceFiveDays').addEventListener('click',function(){var from=document.getElementById('absenceDateFrom');var through=document.getElementById('absenceDateThrough');if(!from.value)from.value=S.date;through.value=fiveSchoolDayEnd(from.value);updateRangeHint();});",
+    '',
+    '  var baseUpdateAbsenceScheduleHint=updateAbsenceScheduleHint;',
+    '  updateAbsenceScheduleHint=function(){',
+    "    var from=document.getElementById('absenceDateFrom');",
+    '    if(!S.editingAbsence&&from&&from.value&&from.value!==S.date){',
+    "      document.getElementById('absenceScheduleHint').textContent='Coverage blocks will use the Teacher Schedule for each selected date.';",
+    '      return;',
+    '    }',
+    '    return baseUpdateAbsenceScheduleHint();',
+    '  };',
+    '',
+    '  var baseOpenAbsence=openAbsence;',
+    '  openAbsence=function(staffName){',
+    '    baseOpenAbsence(staffName);',
+    '    var editing=!!S.editingAbsence;',
+    "    range.classList.toggle('hidden',editing);",
+    "    var sub=document.querySelector('#absenceModal .m-sub');",
+    "    if(sub)sub.textContent=editing?'Edit this absence for the selected day.':'Choose a staff member, date or range, and the part of the day they will miss.';",
+    '    if(!editing){',
+    "      document.getElementById('absenceDateFrom').value=S.date;",
+    "      document.getElementById('absenceDateThrough').value=S.date;",
+    '      updateRangeHint();',
+    '      updateAbsenceScheduleHint();',
+    '    }',
+    '  };',
+    '',
+    '  var baseSaveAbsence=saveAbsence;',
+    '  saveAbsence=async function(){',
+    '    if(S.editingAbsence)return baseSaveAbsence();',
+    "    var staffName=document.getElementById('absenceStaff').value;",
+    "    if(!staffName){flash('Choose a staff member.','warn');return;}",
+    "    var type=document.getElementById('absenceTypes').dataset.selected||'Full Day';",
+    "    var next={staffName:staffName,absenceType:type==='Emergency'?'Full Day':type,allDay:type!=='Partial Day',emergency:type==='Emergency',startOverride:type==='Partial Day'?document.getElementById('absenceStart').value.trim():'',endOverride:type==='Partial Day'?document.getElementById('absenceEnd').value.trim():'',preferredCoverage:document.getElementById('preferredCoverage').value,notes:document.getElementById('absenceNotes').value.trim()};",
+    "    if(type==='Partial Day'&&(!next.startOverride||!next.endOverride)){flash('Enter both a start and end time for a partial-day absence.','warn');return;}",
+    "    var startDate=document.getElementById('absenceDateFrom').value;",
+    "    var endDate=document.getElementById('absenceDateThrough').value||startDate;",
+    "    if(!startDate||!endDate){flash('Choose the absence date.','warn');return;}",
+    "    if(endDate<startDate){flash('Through date must be the same as or after From.','warn');return;}",
+    '    try{',
+    "      var result=await gas('webSaveAbsenceRange',{startDate:startDate,endDate:endDate,currentDate:S.date,absence:next});",
+    "      closeModal('absenceModal');",
+    '      if(result&&result.currentDateUpdated){',
+    '        S.absences=normalizeAbsences(result.currentAbsences||[]);',
+    '        S.plan=[];',
+    '        renderAll();',
+    '      }',
+    "      var count=(result&&result.count)||schoolDayCount(startDate,endDate);",
+    "      flash('Absence saved for '+count+' school day'+(count===1?'':'s')+'.');",
+    '    }catch(e){fail(e)}',
+    '  };',
+    '})();',
+    '</script>'
+  ].join('\n');
+}
+
 function getHandoutOpenLinkUi_() {
   return [
     '<style>',
@@ -278,11 +364,6 @@ function getHandoutOpenLinkUi_() {
   ].join('\n');
 }
 
-/**
- * Web-app executions do not have a user-visible spreadsheet selected. The
- * bound spreadsheet stores its id in Script Properties so every web request
- * can reopen the correct workbook without hard-coding a private id.
- */
 function activateCoverageSpreadsheetForWeb_() {
   const spreadsheetId = PropertiesService.getScriptProperties()
     .getProperty(COVERAGE_SPREADSHEET_PROPERTY);
@@ -320,13 +401,6 @@ function ensureCoverageWorkbookReadyForWeb_() {
   return ss;
 }
 
-/**
- * google.script.run only accepts primitives plus objects/arrays made from
- * primitives. Native Sheets dates/times arrive in Apps Script as Date objects,
- * so recursively convert them before returning anything to the browser.
- * Sheets stores time-only cells on an 1899/1900 date, so preserve those as
- * display-time strings rather than ISO timestamps.
- */
 function makeWebSafe_(value) {
   if (value === null || value === undefined) return value === undefined ? null : value;
 
@@ -380,6 +454,72 @@ function webGetBootstrap(payload) {
 function webSaveAbsences(payload) {
   ensureCoverageWorkbookReadyForWeb_();
   return replaceDailyAbsences(payload || {});
+}
+
+function parseAbsenceRangeDate_(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0, 0);
+  if (
+    date.getFullYear() !== Number(match[1]) ||
+    date.getMonth() !== Number(match[2]) - 1 ||
+    date.getDate() !== Number(match[3])
+  ) return null;
+  return date;
+}
+
+function webSaveAbsenceRange(payload) {
+  ensureCoverageWorkbookReadyForWeb_();
+  payload = payload || {};
+
+  const start = parseAbsenceRangeDate_(payload.startDate);
+  const end = parseAbsenceRangeDate_(payload.endDate || payload.startDate);
+  const absence = payload.absence || {};
+  const staffName = String(absence.staffName || '').trim();
+
+  if (!start || !end) throw new Error('Choose a valid absence date or date range.');
+  if (end < start) throw new Error('Through date must be the same as or after From.');
+  if (!staffName) throw new Error('Choose a staff member.');
+
+  const calendarDays = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+  if (calendarDays > 63) {
+    throw new Error('Please keep one absence entry to 63 calendar days or fewer.');
+  }
+
+  const timeZone = Session.getScriptTimeZone();
+  const savedDates = [];
+  const cursor = new Date(start.getTime());
+
+  while (cursor <= end) {
+    const weekday = cursor.getDay();
+    if (weekday !== 0 && weekday !== 6) {
+      const dateKey = Utilities.formatDate(cursor, timeZone, 'yyyy-MM-dd');
+      const day = guessDayCodeFromDate_(dateKey);
+      if (day) {
+        let current = getDailyAbsencesForDate_(dateKey, day) || [];
+        current = current.filter(row => String(row.staffName || '').trim() !== staffName);
+        current.push(absence);
+        replaceDailyAbsences({ date: dateKey, day: day, absences: current });
+        savedDates.push(dateKey);
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  if (!savedDates.length) {
+    throw new Error('That range does not contain a Monday–Friday school day.');
+  }
+
+  const currentDate = String(payload.currentDate || '').trim();
+  const currentDateUpdated = savedDates.indexOf(currentDate) !== -1;
+  const currentDay = currentDateUpdated ? guessDayCodeFromDate_(currentDate) : '';
+
+  return makeWebSafe_({
+    count: savedDates.length,
+    savedDates: savedDates,
+    currentDateUpdated: currentDateUpdated,
+    currentAbsences: currentDateUpdated ? getDailyAbsencesForDate_(currentDate, currentDay) : []
+  });
 }
 
 function webGenerateCoverage(payload) {
