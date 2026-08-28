@@ -96,7 +96,7 @@ function ensureCoverageWorkbookReadyForWeb_() {
     setupCoverageWorkbookFromTeacherSchedule();
   }
 
-  ensureStaffListForWeb_();
+  ensureStaffListSheet_();
   return ss;
 }
 
