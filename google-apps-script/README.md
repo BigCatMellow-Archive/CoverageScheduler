@@ -2,15 +2,18 @@
 
 This folder is the copy-ready Google Apps Script version of Coverage Scheduler.
 
+The primary interface is now the **full-page web app** in `index.html`, based on the original Coverage Scheduler prototype layout. The older spreadsheet sidebar files are retained as an optional secondary interface.
+
 ## Files
 
-- `code.gs` — spreadsheet menu and entry points
+- `code.gs` — web-app entry point, spreadsheet menu, and server wrappers
+- `index.html` — full-page Coverage Scheduler interface
 - `teacher-schedule-adapter.gs` — preserves and validates the existing Teacher Schedule source
 - `setup.gs` — managed workbook sheets, validation, and defaults
 - `scheduler.gs` — scheduling engine and Google Docs handout generation
-- `sidebar.html` — sidebar markup
-- `sidebarcss.html` — sidebar styles
-- `sidebarjs.html` — sidebar browser logic
+- `sidebar.html` — optional spreadsheet sidebar markup
+- `sidebarcss.html` — optional sidebar styles
+- `sidebarjs.html` — optional sidebar browser logic
 - `appsscript.json` — Apps Script project manifest
 
 ## Teacher Schedule source
@@ -34,13 +37,36 @@ The `Term` column is currently informational when all rows are `All Year`. If se
 1. Open the Google Sheet you want to use.
 2. Confirm the live schedule is in a tab named **Teacher Schedule**.
 3. Go to **Extensions → Apps Script**.
-4. Create matching script/HTML files and copy in the contents from this folder.
-5. If the manifest is hidden, open **Project Settings** and enable **Show `appsscript.json` manifest file in editor**.
-6. Replace the generated manifest with this folder's `appsscript.json`.
-7. Save the project and reload the spreadsheet.
-8. Run **Coverage Scheduler → Validate teacher schedule**.
-9. Run **Coverage Scheduler → Set up workbook**.
+4. Create matching files and copy in the contents from this folder. For the full web interface, the required application files are:
+   - `code.gs`
+   - `teacher-schedule-adapter.gs`
+   - `setup.gs`
+   - `scheduler.gs`
+   - `index.html`
+5. If the manifest is hidden, open **Project Settings** and enable **Show `appsscript.json` manifest file in editor**, then replace it with this folder's manifest.
+6. Save the project and reload the spreadsheet.
+7. Run **Coverage Scheduler → Validate teacher schedule**.
+8. Run **Coverage Scheduler → Set up workbook**.
 
 Set up creates or repairs the scheduler-managed tabs but leaves the existing `Teacher Schedule` data and layout alone.
 
-The script is bound to the spreadsheet it operates on; no spreadsheet ID is hard-coded.
+## Deploy the full-page interface
+
+1. In the Apps Script editor choose **Deploy → New deployment**.
+2. Choose **Web app**.
+3. Set **Execute as** to yourself/the script owner so the app can read and write the scheduler workbook.
+4. Choose the access level appropriate for the staff who will use the scheduler.
+5. Deploy and authorize the requested Google Sheets/Docs permissions.
+6. Open the generated `/exec` URL. That URL loads `index.html` as the full Coverage Scheduler application.
+
+The web UI supports the original workflow: choose a date, add/edit absences, toggle coverage staff availability, generate the plan, inspect Timeline/Table/By Sub views, manually reassign blocks, save output, and create the handout document.
+
+## Workbook binding
+
+For the web-app execution context, `code.gs` currently points explicitly to the 2026–27 Coverage Scheduler workbook:
+
+```text
+1tLR_QPQyHD-w_FlAjb1HYtjxY6NLVy4E-WLmIln8AK8
+```
+
+This is intentional because a deployed Apps Script web app does not always have a spreadsheet UI context available. If the scheduler is moved to a different workbook, update `COVERAGE_SPREADSHEET_ID` near the top of `code.gs`.
