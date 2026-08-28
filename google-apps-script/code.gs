@@ -234,6 +234,16 @@ function getWorkingOverlayUi_() {
     '      });',
     '    };',
     '  }',
+    "  if(typeof setLoading==='function' && typeof renderPlan==='function'){",
+    '    var baseSetLoading=setLoading;',
+    '    setLoading=function(on){',
+    '      baseSetLoading(on);',
+    '      if(!on){',
+    "        var body=document.getElementById('planBody');",
+    "        if(body && body.querySelector('.spinner')) renderPlan();",
+    '      }',
+    '    };',
+    '  }',
     '})();',
     '</script>'
   ].join('\n');
