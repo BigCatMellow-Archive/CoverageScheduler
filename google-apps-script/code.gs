@@ -28,7 +28,9 @@ function setupCoverageScheduler() {
     .setProperty(COVERAGE_SPREADSHEET_PROPERTY, ss.getId());
 
   SpreadsheetApp.setActiveSpreadsheet(ss);
-  return setupCoverageWorkbookFromTeacherSchedule();
+  const result = setupCoverageWorkbookFromTeacherSchedule();
+  ensureStaffListSheet_();
+  return result;
 }
 
 function doGet() {
@@ -70,6 +72,7 @@ function ensureCoverageWorkbookReadyForWeb_() {
   if (missing.length) {
     setupCoverageWorkbookFromTeacherSchedule();
   }
+  ensureStaffListSheet_();
   return ss;
 }
 
