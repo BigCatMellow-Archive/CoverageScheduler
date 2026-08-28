@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coverage Scheduler</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Space Grotesk',sans-serif;height:100vh;overflow:hidden;color:#0f172a;background:#f1f5f9}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+
+/* TOP BAR */
+.topbar{height:54px;background:#0f172a;display:flex;align-items:center;gap:12px;padding:0 16px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,0.06)}
+.brand{display:flex;align-items:center;gap:9px;color:white;text-decoration:none}
+.brand-icon{width:28px;height:28px;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);border-radius:8px;display:grid;place-items:center;flex-shrink:0;font-size:13px}
+.brand h1{font-size:14px;font-weight:700;letter-spacing:-0.2px;white-space:nowrap}
+.sep{width:1px;height:22px;background:rgba(255,255,255,0.1);flex-shrink:0}
+.date-area{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.date-input{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.1);color:white;border-radius:7px;padding:5px 9px;font-family:'Space Grotesk',sans-serif;font-size:13px;color-scheme:dark;cursor:pointer}
+.date-input:focus{outline:none;border-color:rgba(99,102,241,0.6)}
+.day-tag{background:rgba(99,102,241,0.22);color:#a5b4fc;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;letter-spacing:0.8px;white-space:nowrap}
+.stats-row{display:flex;gap:6px;flex:1;justify-content:center}
+.stat{display:flex;align-items:center;gap:5px;padding:4px 11px;border-radius:20px;font-size:12px;font-weight:500;white-space:nowrap}
+.stat .n{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+.s-absent{background:rgba(255,255,255,0.07);color:#94a3b8}
+.s-assigned{background:rgba(5,150,105,0.18);color:#34d399}
+.s-unfilled{background:rgba(220,38,38,0.2);color:#f87171}
+.s-blocks{background:rgba(99,102,241,0.15);color:#a5b4fc}
+.top-actions{display:flex;gap:6px;flex-shrink:0}
+.btn{border-radius:7px;padding:6px 13px;font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.14s;border:none;white-space:nowrap}
+.btn-primary{background:#6366f1;color:white}
+.btn-primary:hover{background:#4f46e5}
+.btn-primary:disabled{opacity:0.5;cursor:not-allowed}
+.btn-ghost{background:rgba(255,255,255,0.07);color:#cbd5e1;border:1px solid rgba(255,255,255,0.1)}
+.btn-ghost:hover{background:rgba(255,255,255,0.13)}
+.btn-sm{padding:3px 9px;font-size:11px;border-radius:5px}
+.btn-link{background:none;border:none;color:#6366f1;font-family:'Space Grotesk',sans-serif;font-size:12px;font-weight:500;cursor:pointer;padding:0}
+.btn-link:hover{color:#4f46e5}
+
+/* NOTIF BAR */
+.notif{padding:8px 18px;font-size:12px;font-weight:500;display:flex;align-items:center;gap:8px;flex-shrink:0;animation:slideDown 0.2s ease}
+@keyframes slideDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.notif.ok{background:#dcfce7;color:#166534;border-bottom:1px solid #bbf7d0}
+.notif.warn{background:#fffbeb;color:#92400e;border-bottom:1px solid #fde68a}
+.notif.err{background:#fee2e2;color:#991b1b;border-bottom:1px solid #fca5a5}
+
+/* LAYOUT */
+.layout{display:flex;height:calc(100vh - 54px);overflow:hidden}
+
+/* SHARED PANEL */
+.panel{display:flex;flex-direction:column;overflow:hidden}
+.pnl-hd{padding:11px 15px 9px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:8px;background:white;flex-shrink:0}
+.pnl-hd h2{font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.9px;flex:1}
+.pnl-count{font-size:11px;font-weight:600;color:#94a3b8;background:#f1f5f9;padding:2px 7px;border-radius:10px}
+.pnl-search{padding:7px 12px;background:white;border-bottom:1px solid #f1f5f9;flex-shrink:0}
+.pnl-search input{width:100%;padding:5px 9px;border:1px solid #e8ecf0;border-radius:6px;font-family:'Space Grotesk',sans-serif;font-size:12px;background:#f8fafc;color:#0f172a}
+.pnl-search input:focus{outline:none;border-color:#6366f1}
+.pnl-scroll{flex:1;overflow-y:auto}
+
+/* LEFT — ABSENT */
+.panel-left{width:288px;min-width:288px;background:white;border-right:1px solid #e2e8f0}
+.abs-row{padding:9px 14px;border-bottom:1px solid #f8fafc;display:flex;align-items:start;gap:8px;cursor:default}
+.abs-row:hover{background:#fafbfe}
+.abs-info{flex:1;min-width:0}
+.abs-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.abs-subj{font-size:11px;color:#94a3b8;margin-top:1px}
+.abs-badge{display:inline-flex;align-items:center;font-size:10px;font-weight:700;padding:2px 7px;border-radius:9px;margin-top:5px;letter-spacing:0.2px}
+.ab-full{background:#fef2f2;color:#dc2626}
+.ab-partial{background:#fffbeb;color:#d97706}
+.ab-emergency{background:#fff1f2;color:#e11d48;border:1px solid #fecdd3}
+.abs-blocks{font-size:11px;color:#94a3b8;margin-top:3px}
+.add-row{padding:10px 14px}
+.add-btn{width:100%;padding:8px;border:1.5px dashed #d1d5db;border-radius:7px;background:none;font-family:'Space Grotesk',sans-serif;font-size:12px;color:#9ca3af;cursor:pointer;transition:all 0.15s}
+.add-btn:hover{border-color:#6366f1;color:#6366f1;background:#f5f3ff}
+
+/* RIGHT — STAFF */
+.panel-right{width:272px;min-width:272px;background:white;border-left:1px solid #e2e8f0}
+.staff-row{padding:9px 13px;border-bottom:1px solid #f8fafc;display:flex;align-items:center;gap:9px;transition:opacity 0.18s}
+.staff-row.off{opacity:0.38}
+.staff-info{flex:1;min-width:0}
+.staff-name-row{display:flex;align-items:center;gap:5px}
+.staff-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tier{font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;flex-shrink:0}
+.t1{background:#eef2ff;color:#4f46e5}
+.t2{background:#ecfeff;color:#0891b2}
+.t3{background:#faf5ff;color:#7c3aed}
+.staff-avail{font-size:11px;color:#94a3b8;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.staff-assigned{font-size:11px;color:#059669;margin-top:1px;font-weight:500}
+/* Toggle */
+.tog{position:relative;width:32px;height:17px;flex-shrink:0}
+.tog input{display:none}
+.tog-sl{position:absolute;inset:0;background:#d1d5db;border-radius:9px;cursor:pointer;transition:background 0.18s}
+.tog-sl::after{content:'';position:absolute;left:2px;top:1.5px;width:14px;height:14px;background:white;border-radius:50%;transition:transform 0.18s;box-shadow:0 1px 2px rgba(0,0,0,0.15)}
+.tog input:checked+.tog-sl{background:#059669}
+.tog input:checked+.tog-sl::after{transform:translateX(15px)}
+
+/* CENTER */
+.panel-center{flex:1;display:flex;flex-direction:column;overflow:hidden;background:#f8fafc}
+.plan-hd{padding:11px 17px 9px;background:white;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.plan-hd h2{font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.9px;flex:1}
+.plan-counts{display:flex;gap:10px;font-size:12px;font-weight:600}
+.pc-assigned{color:#059669}
+.pc-unfilled{color:#dc2626}
+.vtabs{display:flex;gap:1px;background:#f1f5f9;border-radius:7px;padding:3px}
+.vtab{padding:4px 10px;border:none;border-radius:5px;font-family:'Space Grotesk',sans-serif;font-size:12px;font-weight:500;cursor:pointer;color:#64748b;background:none;transition:all 0.12s}
+.vtab.on{background:white;color:#0f172a;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
+.plan-body{flex:1;overflow-y:auto;padding:16px 17px}
+
+/* EMPTY / LOADING */
+.empty{text-align:center;padding:70px 24px}
+.empty-ico{font-size:36px;margin-bottom:14px;opacity:0.5}
+.empty h3{font-size:15px;font-weight:600;color:#374151;margin-bottom:8px}
+.empty p{font-size:13px;color:#9ca3af;line-height:1.65;max-width:290px;margin:0 auto}
+.spinner{width:28px;height:28px;border:3px solid #e2e8f0;border-top-color:#6366f1;border-radius:50%;animation:spin 0.7s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* TIMELINE */
+.tl-axis{display:flex;padding-left:194px;position:relative;height:20px;margin-bottom:5px;flex-shrink:0}
+.tl-tick{position:absolute;transform:translateX(-50%);font-size:10px;color:#94a3b8;font-family:'JetBrains Mono',monospace;white-space:nowrap}
+.tl-rows{display:flex;flex-direction:column;gap:2px}
+.tl-group{margin-bottom:12px}
+.tl-group-lbl{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.9px;margin-bottom:5px;padding-left:0}
+.tl-row{display:flex;align-items:center;height:38px}
+.tl-lbl{width:194px;min-width:194px;padding-right:12px}
+.tl-lbl-name{font-size:11px;font-weight:600;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-lbl-sub{font-size:10px;color:#94a3b8}
+.tl-track{flex:1;position:relative;height:28px;background:#f1f5f9;border-radius:5px}
+.tl-hr{position:absolute;top:0;bottom:0;width:1px;background:rgba(0,0,0,0.06);pointer-events:none}
+.tl-blk{position:absolute;top:2px;height:24px;border-radius:3px;display:flex;align-items:center;padding:0 6px;font-size:10px;font-weight:600;cursor:pointer;overflow:hidden;white-space:nowrap;transition:filter 0.1s;z-index:1}
+.tl-blk:hover{filter:brightness(0.88);z-index:5}
+.tl-blk.assigned{background:#d1fae5;color:#065f46;border:1px solid #a7f3d0}
+.tl-blk.unfilled{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.tl-blk.nocover{background:#f1f5f9;color:#94a3b8;border:1px solid #e2e8f0;cursor:default}
+.tl-blk.emergency{background:#fef3c7;color:#92400e;border:1px solid #fde68a}
+
+/* TABLE */
+.plan-tbl{width:100%;border-collapse:collapse;font-size:12px;background:white;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+.plan-tbl th{text-align:left;padding:9px 12px;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.6px;background:#f8fafc;border-bottom:1px solid #e2e8f0;white-space:nowrap}
+.plan-tbl td{padding:8px 12px;border-bottom:1px solid #f1f5f9;vertical-align:middle;color:#0f172a}
+.plan-tbl tr:last-child td{border-bottom:none}
+.plan-tbl tr.uf td{background:#fff5f5}
+.plan-tbl tr:not(.uf):hover td{background:#fafbfc}
+.plan-tbl tr.uf:hover td{background:#feecec}
+.plan-tbl tr{cursor:pointer}
+.t-mono{font-family:'JetBrains Mono',monospace;font-size:11px;color:#64748b;white-space:nowrap}
+.sp{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:2px 8px;border-radius:9px;white-space:nowrap}
+.sp-ok{background:#d1fae5;color:#065f46}
+.sp-bad{background:#fee2e2;color:#991b1b}
+.sp-nc{background:#f1f5f9;color:#64748b}
+
+/* MODAL */
+.overlay{position:fixed;inset:0;background:rgba(15,23,42,0.45);display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(3px)}
+.modal{background:white;border-radius:14px;width:460px;max-width:95vw;max-height:88vh;overflow:auto;box-shadow:0 24px 64px rgba(15,23,42,0.22);animation:mIn 0.18s ease}
+.modal-sm{width:400px}
+@keyframes mIn{from{opacity:0;transform:scale(0.96) translateY(8px)}to{opacity:1;transform:none}}
+.m-hd{padding:19px 22px 15px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center}
+.m-hd h2{font-size:15px;font-weight:700;flex:1;letter-spacing:-0.2px}
+.m-x{width:28px;height:28px;border:none;border-radius:6px;background:#f1f5f9;color:#64748b;font-size:17px;cursor:pointer;display:grid;place-items:center;line-height:1;flex-shrink:0}
+.m-x:hover{background:#e2e8f0}
+.m-body{padding:18px 22px}
+.fg{margin-bottom:15px}
+.fg:last-child{margin-bottom:0}
+.fl{display:block;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:6px}
+.fi,.fs{width:100%;padding:8px 11px;border:1px solid #e2e8f0;border-radius:7px;font-family:'Space Grotesk',sans-serif;font-size:13px;color:#0f172a;background:white}
+.fi:focus,.fs:focus{outline:none;border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,0.1)}
+.type-row{display:flex;gap:6px;flex-wrap:wrap}
+.t-opt{padding:6px 13px;border:1.5px solid #e2e8f0;border-radius:7px;font-family:'Space Grotesk',sans-serif;font-size:12px;font-weight:500;cursor:pointer;color:#475569;background:white;transition:all 0.12s}
+.t-opt:hover{border-color:#a5b4fc}
+.t-opt.sel{background:#eef2ff;border-color:#6366f1;color:#4f46e5}
+.f-row{display:flex;gap:12px}
+.f-row .fg{flex:1}
+.m-ft{padding:14px 22px;border-top:1px solid #f1f5f9;display:flex;gap:8px;align-items:center}
+.m-ft .sp-r{flex:1}
+.btn-del{background:#fef2f2;color:#dc2626;border:1px solid #fecaca;padding:6px 13px;border-radius:7px;font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.12s}
+.btn-del:hover{background:#fee2e2}
+.btn-save{background:#6366f1;color:white;padding:6px 18px;border-radius:7px;border:none;font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.12s}
+.btn-save:hover{background:#4f46e5}
+.btn-cancel{background:#f1f5f9;color:#475569;border:none;padding:6px 13px;border-radius:7px;font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:500;cursor:pointer}
+.btn-cancel:hover{background:#e2e8f0}
+.block-info-box{background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:16px;border:1px solid #e2e8f0}
+.block-info-box .bi-class{font-size:14px;font-weight:600;margin-bottom:5px}
+.block-info-box .bi-meta{font-size:12px;color:#64748b;font-family:'JetBrains Mono',monospace}
+.block-info-box .bi-status{margin-top:6px}
+</style>
+<template id="__bundler_thumbnail" data-bg-color="#0f172a">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <!-- Top bar -->
+    <rect width="1200" height="54" fill="#0f172a"/>
+    <rect x="16" y="13" width="28" height="28" rx="8" fill="url(#g1)"/>
+    <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#8b5cf6"/></linearGradient></defs>
+    <rect x="52" y="21" width="120" height="12" rx="3" fill="#334155"/>
+    <rect x="210" y="18" width="100" height="18" rx="5" fill="#1e293b"/>
+    <rect x="320" y="18" width="70" height="18" rx="9" fill="#312e81"/>
+    <!-- Stats -->
+    <rect x="460" y="18" width="60" height="18" rx="9" fill="#1e293b"/>
+    <rect x="530" y="18" width="70" height="18" rx="9" fill="#064e3b"/>
+    <rect x="610" y="18" width="70" height="18" rx="9" fill="#450a0a"/>
+    <!-- Buttons -->
+    <rect x="1060" y="14" width="120" height="26" rx="7" fill="#6366f1"/>
+    <!-- Left panel -->
+    <rect x="0" y="54" width="288" height="746" fill="white"/>
+    <rect x="0" y="54" width="288" height="1" fill="#e2e8f0"/>
+    <rect x="14" y="76" width="140" height="8" rx="3" fill="#e2e8f0"/>
+    <rect x="14" y="100" width="260" height="30" rx="6" fill="#f8fafc"/>
+    <!-- Absence rows -->
+    {[140,185,230,275,320,365].map((y,i) => `
+      <rect x="14" y="${y}" width="260" height="38" fill="${i%2===0?'#fafbfe':'white'}"/>
+      <rect x="14" y="${y+8}" width="100" height="8" rx="3" fill="#1e293b"/>
+      <rect x="14" y="${y+22}" width="70" height="6" rx="3" fill="#e2e8f0"/>
+      <rect x="14" y="${y+22}" width="${i===5?55:45}" height="14" rx="7" fill="${i===5?'#fff1f2':'#fef2f2'}"/>
+    `).join('')}
+    <!-- Center panel -->
+    <rect x="288" y="54" width="624" height="746" fill="#f8fafc"/>
+    <rect x="288" y="54" width="624" height="1" fill="#e2e8f0"/>
+    <!-- Timeline rows -->
+    <rect x="305" y="80" width="590" height="10" rx="3" fill="#e8ecf0"/>
+    {[108,148,188,228,268,308,348].map((y,i) => `
+      <rect x="305" y="${y}" width="590" height="32" fill="transparent"/>
+      <rect x="305" y="${y+4}" width="100" height="24" rx="4" fill="${['#d1fae5','#d1fae5','#fee2e2','#d1fae5','#fee2e2','#fef3c7','#d1fae5'][i]}"/>
+      <rect x="415" y="${y+4}" width="120" height="24" rx="4" fill="${['#d1fae5','#d1fae5','#d1fae5','#fee2e2','#d1fae5','#d1fae5','#fee2e2'][i]}"/>
+      <rect x="550" y="${y+4}" width="80" height="24" rx="4" fill="${['#d1fae5','#fee2e2','#d1fae5','#d1fae5','#d1fae5','#d1fae5','#d1fae5'][i]}"/>
+      <rect x="645" y="${y+4}" width="100" height="24" rx="4" fill="#f1f5f9"/>
+      <rect x="760" y="${y+4}" width="90" height="24" rx="4" fill="${['#d1fae5','#d1fae5','#fee2e2','#d1fae5','#d1fae5','#fee2e2','#d1fae5'][i]}"/>
+    `).join('')}
+    <!-- Right panel -->
+    <rect x="912" y="54" width="288" height="746" fill="white"/>
+    <rect x="912" y="54" width="1" height="746" fill="#e2e8f0"/>
+    {[140,182,224,266,308,350,392].map((y,i) => `
+      <rect x="928" y="${y}" width="255" height="36" fill="${i%2===0?'white':'#fafbfc'}"/>
+      <rect x="928" y="${y+6}" width="22" height="22" rx="11" fill="${i<7?'#059669':'#d1d5db'}"/>
+      <rect x="958" y="${y+6}" width="90" height="8" rx="3" fill="#1e293b"/>
+      <rect x="1055" y="${y+6}" width="${['eef2ff','ecfeff','eef2ff','ecfeff','faf5ff','eef2ff','ecfeff'][i]?30:30}" height="14" rx="4" fill="#${['eef2ff','ecfeff','eef2ff','ecfeff','faf5ff','ecfeff','f1f5f9'][i]}"/>
+      <rect x="958" y="${y+20}" width="130" height="6" rx="3" fill="#e2e8f0"/>
+    `).join('')}
+  </svg>
+</template>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+/* ─── Time utils ─── */
+const DS = 7*60+30, DE = 16*60, DSPAN = DE - DS;
+function pt(s) {
+  const m = String(s||'').match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return DS;
+  let h = +m[1], mn = +m[2], p = m[3].toUpperCase();
+  if (p === 'PM' && h !== 12) h += 12;
+  if (p === 'AM' && h === 12) h = 0;
+  return h * 60 + mn;
+}
+function tl(s) { return ((pt(s) - DS) / DSPAN * 100).toFixed(2) + '%'; }
+function tw(s, e) { return Math.max(0.4, (pt(e) - pt(s)) / DSPAN * 100).toFixed(2) + '%'; }
+const HOURS = [8,9,10,11,12,13,14,15].map(h => {
+  const label = h < 12 ? `${h}a` : h === 12 ? '12p' : `${h-12}p`;
+  const ts = h < 12 ? `${h}:00 AM` : h === 12 ? '12:00 PM' : `${h-12}:00 PM`;
+  return { label, left: tl(ts) };
+});
+
+/* ─── Mock data ─── */
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "viewMode": "subs",
+  "showNocover": true
+}/*EDITMODE-END*/;
+
+const ALL_TEACHERS = [
+  { name:'Ms. Johnson', subject:'Mathematics', absenceType:'Full Day', emergency:false,
+    blocks:[
+      {id:'j1',p:'P1',start:'7:45 AM',end:'8:35 AM',cls:'Algebra II',gr:'10',subj:'Math',rm:'204',type:'Class',needs:true},
+      {id:'j2',p:'P2',start:'8:38 AM',end:'9:28 AM',cls:'Geometry',gr:'9',subj:'Math',rm:'204',type:'Class',needs:true},
+      {id:'j3',p:'P3',start:'9:31 AM',end:'10:21 AM',cls:'Planning',gr:'',subj:'',rm:'204',type:'Planning',needs:false},
+      {id:'j4',p:'P4',start:'10:36 AM',end:'11:26 AM',cls:'Pre-Calculus',gr:'11',subj:'Math',rm:'204',type:'Class',needs:true},
+      {id:'j5',p:'P5',start:'11:29 AM',end:'12:19 PM',cls:'AP Calculus',gr:'12',subj:'Math',rm:'204',type:'Class',needs:true},
+      {id:'j6',p:'P6',start:'12:52 PM',end:'1:42 PM',cls:'Algebra I',gr:'9',subj:'Math',rm:'204',type:'Class',needs:true},
+      {id:'j7',p:'P7',start:'1:45 PM',end:'2:35 PM',cls:'Hall Duty',gr:'',subj:'',rm:'Hall B',type:'Duty',needs:true},
+    ]},
+  { name:'Mr. Chen', subject:'Biology / Science', absenceType:'Full Day', emergency:false,
+    blocks:[
+      {id:'c1',p:'P1',start:'7:45 AM',end:'8:35 AM',cls:'Biology',gr:'10',subj:'Science',rm:'Lab 110',type:'Class',needs:true},
+      {id:'c2',p:'P2',start:'8:38 AM',end:'9:28 AM',cls:'Chemistry',gr:'11',subj:'Science',rm:'Lab 110',type:'Class',needs:true},
+      {id:'c3',p:'P3',start:'9:31 AM',end:'10:21 AM',cls:'Env. Science',gr:'9',subj:'Science',rm:'Lab 110',type:'Class',needs:true},
+      {id:'c4',p:'P4',start:'10:36 AM',end:'11:26 AM',cls:'Planning',gr:'',subj:'',rm:'Lab 110',type:'Planning',needs:false},
+      {id:'c5',p:'P5',start:'11:29 AM',end:'12:19 PM',cls:'AP Biology',gr:'12',subj:'Science',rm:'Lab 110',type:'Class',needs:true},
+      {id:'c6',p:'P7',start:'1:45 PM',end:'2:35 PM',cls:'Chemistry',gr:'11',subj:'Science',rm:'Lab 110',type:'Class',needs:true},
+    ]},
+  { name:'Ms. Davis', subject:'English / ELA', absenceType:'Full Day', emergency:false,
+    blocks:[
+      {id:'d1',p:'P1',start:'7:45 AM',end:'8:35 AM',cls:'Lit & Comp',gr:'10',subj:'English',rm:'315',type:'Class',needs:true},
+      {id:'d2',p:'P2',start:'8:38 AM',end:'9:28 AM',cls:'AP English',gr:'12',subj:'English',rm:'315',type:'Class',needs:true},
+      {id:'d3',p:'P3',start:'9:31 AM',end:'10:21 AM',cls:'Writing',gr:'9',subj:'English',rm:'315',type:'Class',needs:true},
+      {id:'d4',p:'P5',start:'11:29 AM',end:'12:19 PM',cls:'Lit & Comp',gr:'11',subj:'English',rm:'315',type:'Class',needs:true},
+      {id:'d5',p:'P6',start:'12:52 PM',end:'1:42 PM',cls:'AP English',gr:'12',subj:'English',rm:'315',type:'Class',needs:true},
+      {id:'d6',p:'P7',start:'1:45 PM',end:'2:35 PM',cls:'Reading',gr:'10',subj:'English',rm:'315',type:'Class',needs:true},
+    ]},
+  { name:'Mr. Thompson', subject:'History', absenceType:'Partial Day', emergency:false,
+    blocks:[
+      {id:'t1',p:'P5',start:'11:29 AM',end:'12:19 PM',cls:'World History',gr:'9',subj:'History',rm:'221',type:'Class',needs:true},
+      {id:'t2',p:'P6',start:'12:52 PM',end:'1:42 PM',cls:'US History',gr:'11',subj:'History',rm:'221',type:'Class',needs:true},
+      {id:'t3',p:'P7',start:'1:45 PM',end:'2:35 PM',cls:'AP History',gr:'12',subj:'History',rm:'221',type:'Class',needs:true},
+    ]},
+  { name:'Ms. Rodriguez', subject:'Visual Art', absenceType:'Full Day', emergency:false,
+    blocks:[
+      {id:'r1',p:'P1',start:'7:45 AM',end:'8:35 AM',cls:'Drawing I',gr:'9',subj:'Art',rm:'Art Rm',type:'Class',needs:true},
+      {id:'r2',p:'P2',start:'8:38 AM',end:'9:28 AM',cls:'Painting',gr:'10',subj:'Art',rm:'Art Rm',type:'Class',needs:true},
+      {id:'r3',p:'P4',start:'10:36 AM',end:'11:26 AM',cls:'Sculpture',gr:'10',subj:'Art',rm:'Art Rm',type:'Class',needs:true},
+      {id:'r4',p:'P6',start:'12:52 PM',end:'1:42 PM',cls:'Ceramics',gr:'12',subj:'Art',rm:'Art Rm',type:'Class',needs:true},
+      {id:'r5',p:'P7',start:'1:45 PM',end:'2:35 PM',cls:'Art History',gr:'12',subj:'Art',rm:'110',type:'Class',needs:true},
+    ]},
+  { name:'Mr. Williams', subject:'Music', absenceType:'Full Day', emergency:true,
+    blocks:[
+      {id:'w1',p:'P3',start:'9:31 AM',end:'10:21 AM',cls:'Band',gr:'9-12',subj:'Music',rm:'Music Rm',type:'Class',needs:true},
+      {id:'w2',p:'P4',start:'10:36 AM',end:'11:26 AM',cls:'Orchestra',gr:'9-12',subj:'Music',rm:'Music Rm',type:'Class',needs:true},
+      {id:'w3',p:'P6',start:'12:52 PM',end:'1:42 PM',cls:'Choir',gr:'10-12',subj:'Music',rm:'Music Rm',type:'Class',needs:true},
+    ]},
+];
+
+const INIT_STAFF = [
+  {name:'Sarah Mitchell',role:'Substitute',tier:1,active:true,allDay:true,start:'7:30 AM',end:'4:00 PM'},
+  {name:'Tom Bradley',role:'Substitute',tier:1,active:true,allDay:true,start:'7:30 AM',end:'4:00 PM'},
+  {name:'Linda Foster',role:'Substitute',tier:2,active:true,allDay:false,start:'7:30 AM',end:'1:00 PM'},
+  {name:'James Park',role:'Substitute',tier:2,active:true,allDay:true,start:'8:00 AM',end:'3:30 PM'},
+  {name:'Carol Wright',role:'Teacher (Free Blocks)',tier:2,active:true,allDay:false,start:'9:31 AM',end:'1:42 PM'},
+  {name:'Mike Santos',role:'Substitute',tier:3,active:true,allDay:false,start:'9:00 AM',end:'2:30 PM'},
+  {name:'Nancy Brown',role:'Aide',tier:3,active:true,allDay:true,start:'7:30 AM',end:'3:30 PM'},
+  {name:'Robert Lee',role:'Substitute',tier:1,active:false,allDay:true,start:'7:30 AM',end:'4:00 PM'},
+  {name:'Jennifer Moore',role:'Substitute',tier:2,active:false,allDay:true,start:'8:00 AM',end:'3:30 PM'},
+  {name:'David Clark',role:'Substitute',tier:3,active:false,allDay:false,start:'9:00 AM',end:'2:00 PM'},
+  {name:'Susan Taylor',role:'Substitute',tier:1,active:false,allDay:true,start:'7:30 AM',end:'4:00 PM'},
+  {name:'Kevin Martin',role:'Teacher (Free Blocks)',tier:2,active:false,allDay:false,start:'10:36 AM',end:'2:35 PM'},
+];
+
+const BASE_PLAN = [
+  {id:'p1',absent:'Ms. Johnson',p:'P1',start:'7:45 AM',end:'8:35 AM',cls:'Algebra II',subj:'Math',rm:'204',type:'Class',coverage:'Sarah Mitchell',mode:'Whole Day',tier:1,status:'Assigned',notes:''},
+  {id:'p2',absent:'Ms. Johnson',p:'P2',start:'8:38 AM',end:'9:28 AM',cls:'Geometry',subj:'Math',rm:'204',type:'Class',coverage:'Sarah Mitchell',mode:'Whole Day',tier:1,status:'Assigned',notes:''},
+  {id:'p3',absent:'Ms. Johnson',p:'P4',start:'10:36 AM',end:'11:26 AM',cls:'Pre-Calculus',subj:'Math',rm:'204',type:'Class',coverage:'Sarah Mitchell',mode:'Whole Day',tier:1,status:'Assigned',notes:''},
+  {id:'p4',absent:'Ms. Johnson',p:'P5',start:'11:29 AM',end:'12:19 PM',cls:'AP Calculus',subj:'Math',rm:'204',type:'Class',coverage:'Sarah Mitchell',mode:'Whole Day',tier:1,status:'Assigned',notes:''},
+  {id:'p5',absent:'Ms. Johnson',p:'P6',start:'12:52 PM',end:'1:42 PM',cls:'Algebra I',subj:'Math',rm:'204',type:'Class',coverage:'Sarah Mitchell',mode:'Whole Day',tier:1,status:'Assigned',notes:''},
+  {id:'p6',absent:'Ms. Johnson',p:'P7',start:'1:45 PM',end:'2:35 PM',cls:'Hall Duty',subj:'',rm:'Hall B',type:'Duty',coverage:'Sarah Mitchell',mode:'Whole Day',tier:1,status:'Assigned',notes:''},
+  {id:'p7',absent:'Mr. Chen',p:'P1',start:'7:45 AM',end:'8:35 AM',cls:'Biology',subj:'Science',rm:'Lab 110',type:'Class',coverage:'Tom Bradley',mode:'Whole Day',tier:1,status:'Assigned',notes:''},
+  {id:'p8',absent:'Mr. Chen',p:'P2',start:'8:38 AM',end:'9:28 AM',cls:'Chemistry',subj:'Science',rm:'Lab 110',type:'Class',coverage:'Tom Bradley',mode:'Whole Day',tier:1,status:'Assigned',notes:''},
+  {id:'p9',absent:'Mr. Chen',p:'P3',start:'9:31 AM',end:'10:21 AM',cls:'Env. Science',subj:'Science',rm:'Lab 110',type:'Class',coverage:'Tom Bradley',mode:'Whole Day',tier:1,status:'Assigned',notes:''},
+  {id:'p10',absent:'Mr. Chen',p:'P5',start:'11:29 AM',end:'12:19 PM',cls:'AP Biology',subj:'Science',rm:'Lab 110',type:'Class',coverage:'Tom Bradley',mode:'Whole Day',tier:1,status:'Assigned',notes:''},
+  {id:'p11',absent:'Mr. Chen',p:'P7',start:'1:45 PM',end:'2:35 PM',cls:'Chemistry',subj:'Science',rm:'Lab 110',type:'Class',coverage:'Tom Bradley',mode:'Whole Day',tier:1,status:'Assigned',notes:''},
+  {id:'p12',absent:'Ms. Davis',p:'P1',start:'7:45 AM',end:'8:35 AM',cls:'Lit & Comp',subj:'English',rm:'315',type:'Class',coverage:'Linda Foster',mode:'Split',tier:2,status:'Assigned',notes:''},
+  {id:'p13',absent:'Ms. Davis',p:'P2',start:'8:38 AM',end:'9:28 AM',cls:'AP English',subj:'English',rm:'315',type:'Class',coverage:'Linda Foster',mode:'Split',tier:2,status:'Assigned',notes:''},
+  {id:'p14',absent:'Ms. Davis',p:'P3',start:'9:31 AM',end:'10:21 AM',cls:'Writing',subj:'English',rm:'315',type:'Class',coverage:'Linda Foster',mode:'Split',tier:2,status:'Assigned',notes:''},
+  {id:'p15',absent:'Ms. Davis',p:'P5',start:'11:29 AM',end:'12:19 PM',cls:'Lit & Comp',subj:'English',rm:'315',type:'Class',coverage:'James Park',mode:'Split',tier:2,status:'Assigned',notes:''},
+  {id:'p16',absent:'Ms. Davis',p:'P6',start:'12:52 PM',end:'1:42 PM',cls:'AP English',subj:'English',rm:'315',type:'Class',coverage:'James Park',mode:'Split',tier:2,status:'Assigned',notes:''},
+  {id:'p17',absent:'Ms. Davis',p:'P7',start:'1:45 PM',end:'2:35 PM',cls:'Reading',subj:'English',rm:'315',type:'Class',coverage:'',mode:'',tier:null,status:'Unfilled',notes:'Linda unavailable; James at limit'},
+  {id:'p18',absent:'Mr. Thompson',p:'P5',start:'11:29 AM',end:'12:19 PM',cls:'World History',subj:'History',rm:'221',type:'Class',coverage:'Mike Santos',mode:'Split',tier:3,status:'Assigned',notes:''},
+  {id:'p19',absent:'Mr. Thompson',p:'P6',start:'12:52 PM',end:'1:42 PM',cls:'US History',subj:'History',rm:'221',type:'Class',coverage:'Mike Santos',mode:'Split',tier:3,status:'Assigned',notes:''},
+  {id:'p20',absent:'Mr. Thompson',p:'P7',start:'1:45 PM',end:'2:35 PM',cls:'AP History',subj:'History',rm:'221',type:'Class',coverage:'Mike Santos',mode:'Split',tier:3,status:'Assigned',notes:''},
+  {id:'p21',absent:'Ms. Rodriguez',p:'P1',start:'7:45 AM',end:'8:35 AM',cls:'Drawing I',subj:'Art',rm:'Art Rm',type:'Class',coverage:'Nancy Brown',mode:'Split',tier:3,status:'Assigned',notes:''},
+  {id:'p22',absent:'Ms. Rodriguez',p:'P2',start:'8:38 AM',end:'9:28 AM',cls:'Painting',subj:'Art',rm:'Art Rm',type:'Class',coverage:'Nancy Brown',mode:'Split',tier:3,status:'Assigned',notes:''},
+  {id:'p23',absent:'Ms. Rodriguez',p:'P4',start:'10:36 AM',end:'11:26 AM',cls:'Sculpture',subj:'Art',rm:'Art Rm',type:'Class',coverage:'Carol Wright',mode:'Split',tier:2,status:'Assigned',notes:'Carol free P4'},
+  {id:'p24',absent:'Ms. Rodriguez',p:'P6',start:'12:52 PM',end:'1:42 PM',cls:'Ceramics',subj:'Art',rm:'Art Rm',type:'Class',coverage:'',mode:'',tier:null,status:'Unfilled',notes:'No available staff'},
+  {id:'p25',absent:'Ms. Rodriguez',p:'P7',start:'1:45 PM',end:'2:35 PM',cls:'Art History',subj:'Art',rm:'110',type:'Class',coverage:'',mode:'',tier:null,status:'Unfilled',notes:'No available staff'},
+  {id:'p26',absent:'Mr. Williams',p:'P3',start:'9:31 AM',end:'10:21 AM',cls:'Band',subj:'Music',rm:'Music Rm',type:'Class',coverage:'Nancy Brown',mode:'Emergency',tier:3,status:'Assigned',notes:'Emergency'},
+  {id:'p27',absent:'Mr. Williams',p:'P4',start:'10:36 AM',end:'11:26 AM',cls:'Orchestra',subj:'Music',rm:'Music Rm',type:'Class',coverage:'',mode:'',tier:null,status:'Unfilled',notes:'No available staff'},
+  {id:'p28',absent:'Mr. Williams',p:'P6',start:'12:52 PM',end:'1:42 PM',cls:'Choir',subj:'Music',rm:'Music Rm',type:'Class',coverage:'',mode:'',tier:null,status:'Unfilled',notes:'No available staff'},
+];
+
+/* ─── Sub-components ─── */
+
+function HourLines() {
+  return <>{HOURS.map(h => <div key={h.label} className="tl-hr" style={{left:h.left}} />)}</>;
+}
+
+function TimeAxis() {
+  return (
+    <div className="tl-axis">
+      {HOURS.map(h => <span key={h.label} className="tl-tick" style={{left:h.left}}>{h.label}</span>)}
+    </div>
+  );
+}
+
+function TeacherTimeline({ plan, absences, showNocover, onBlockClick }) {
+  const byTeacher = {};
+  plan.forEach(r => { if (!byTeacher[r.absent]) byTeacher[r.absent] = []; byTeacher[r.absent].push(r); });
+
+  return (
+    <div className="tl-wrap">
+      <TimeAxis />
+      <div className="tl-rows">
+        {absences.map(a => {
+          const teacher = ALL_TEACHERS.find(t => t.name === a.name) || { blocks: [] };
+          const rows = byTeacher[a.name] || [];
+          return (
+            <div key={a.name} className="tl-group">
+              <div className="tl-group-lbl">{a.name} — {a.subject}</div>
+              <div className="tl-row">
+                <div className="tl-lbl">
+                  <div className="tl-lbl-name">{a.name}</div>
+                  <div className="tl-lbl-sub" style={{color: a.emergency ? '#e11d48' : undefined}}>
+                    {a.emergency ? '⚡ Emergency' : a.absenceType}
+                  </div>
+                </div>
+                <div className="tl-track">
+                  <HourLines />
+                  {showNocover && teacher.blocks.filter(b => !b.needs).map(b => (
+                    <div key={b.id} className="tl-blk nocover" style={{left:tl(b.start),width:tw(b.start,b.end)}} title={b.cls || b.type}>
+                      {b.type}
+                    </div>
+                  ))}
+                  {rows.map(row => {
+                    const cls = row.status === 'Assigned' ? (row.mode === 'Emergency' ? 'emergency' : 'assigned') : 'unfilled';
+                    const label = row.status === 'Assigned' ? (row.coverage ? row.coverage.split(' ')[0] : '') : '⚠ Unfilled';
+                    return (
+                      <div key={row.id} className={`tl-blk ${cls}`}
+                        style={{left:tl(row.start),width:tw(row.start,row.end)}}
+                        onClick={() => onBlockClick(row)}
+                        title={`${row.cls} — ${row.status === 'Assigned' ? row.coverage : 'UNFILLED'}`}>
+                        {label}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SubTimeline({ plan, onBlockClick }) {
+  const bySub = {};
+  plan.filter(r => r.status === 'Assigned').forEach(r => {
+    if (!bySub[r.coverage]) bySub[r.coverage] = [];
+    bySub[r.coverage].push(r);
+  });
+  const subs = Object.keys(bySub).sort();
+  const unfilled = plan.filter(r => r.status === 'Unfilled');
+
+  return (
+    <div className="tl-wrap">
+      <TimeAxis />
+      <div className="tl-rows">
+        <div className="tl-group-lbl" style={{marginBottom:8}}>Assigned Coverage</div>
+        {subs.map(sub => (
+          <div key={sub} className="tl-row" style={{marginBottom:3}}>
+            <div className="tl-lbl">
+              <div className="tl-lbl-name">{sub}</div>
+              <div className="tl-lbl-sub">{bySub[sub].length} block{bySub[sub].length>1?'s':''}</div>
+            </div>
+            <div className="tl-track">
+              <HourLines />
+              {bySub[sub].map(row => (
+                <div key={row.id} className={`tl-blk ${row.mode==='Emergency'?'emergency':'assigned'}`}
+                  style={{left:tl(row.start),width:tw(row.start,row.end)}}
+                  onClick={()=>onBlockClick(row)}
+                  title={`${row.absent} · ${row.cls}`}>
+                  {row.absent.split(' ').pop()} {row.cls.slice(0,9)}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {unfilled.length > 0 && (
+          <>
+            <div className="tl-group-lbl" style={{color:'#dc2626',margin:'16px 0 8px'}}>⚠ Unfilled Blocks</div>
+            {unfilled.map(row => (
+              <div key={row.id} className="tl-row" style={{marginBottom:3}}>
+                <div className="tl-lbl">
+                  <div className="tl-lbl-name" style={{color:'#dc2626'}}>{row.absent}</div>
+                  <div className="tl-lbl-sub">{row.cls}</div>
+                </div>
+                <div className="tl-track">
+                  <HourLines />
+                  <div className="tl-blk unfilled" style={{left:tl(row.start),width:tw(row.start,row.end)}}
+                    onClick={()=>onBlockClick(row)}>
+                    ⚠ Unfilled
+                  </div>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PlanTable({ plan, onBlockClick }) {
+  return (
+    <table className="plan-tbl">
+      <thead>
+        <tr>
+          <th>Time</th><th>Absent Staff</th><th>Class / Block</th>
+          <th>Subject</th><th>Rm</th><th>Assigned To</th><th>Mode</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {plan.map(row => (
+          <tr key={row.id} className={row.status==='Unfilled'?'uf':''} onClick={()=>onBlockClick(row)}>
+            <td className="t-mono">{row.start}–{row.end}</td>
+            <td style={{fontWeight:500}}>{row.absent}</td>
+            <td>{row.cls}</td>
+            <td style={{color:'#64748b'}}>{row.subj}</td>
+            <td style={{fontFamily:'JetBrains Mono,monospace',fontSize:'11px',color:'#64748b'}}>{row.rm}</td>
+            <td style={{fontWeight:row.coverage?600:400,color:row.coverage?'#0f172a':'#94a3b8'}}>{row.coverage||'—'}</td>
+            <td style={{color:'#64748b',fontSize:'11px'}}>{row.mode||'—'}</td>
+            <td>
+              <span className={`sp ${row.status==='Assigned'?'sp-ok':row.status==='Unfilled'?'sp-bad':'sp-nc'}`}>
+                {row.status==='Assigned'?'✓ Assigned':row.status==='Unfilled'?'⚠ Unfilled':row.status}
+              </span>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function PlanPanel({ plan, generated, generating, viewMode, setViewMode, absences, showNocover, onBlockClick }) {
+  const assigned = plan.filter(r=>r.status==='Assigned').length;
+  const unfilled = plan.filter(r=>r.status==='Unfilled').length;
+  return (
+    <div className="panel panel-center">
+      <div className="plan-hd">
+        <h2>Coverage Plan</h2>
+        {generated && (
+          <div className="plan-counts">
+            <span className="pc-assigned">{assigned} assigned</span>
+            {unfilled > 0 && <span className="pc-unfilled">{unfilled} unfilled</span>}
+          </div>
+        )}
+        {generated && (
+          <div className="vtabs">
+            <button className={`vtab ${viewMode==='timeline'?'on':''}`} onClick={()=>setViewMode('timeline')}>Timeline</button>
+            <button className={`vtab ${viewMode==='table'?'on':''}`} onClick={()=>setViewMode('table')}>Table</button>
+            <button className={`vtab ${viewMode==='subs'?'on':''}`} onClick={()=>setViewMode('subs')}>By Sub</button>
+          </div>
+        )}
+      </div>
+      <div className="plan-body">
+        {generating && (
+          <div className="empty">
+            <div className="spinner"></div>
+            <h3>Generating coverage plan…</h3>
+            <p>Matching absent blocks to available coverage staff by tier, availability window, and teacher limits.</p>
+          </div>
+        )}
+        {!generating && !generated && (
+          <div className="empty">
+            <div className="empty-ico">📋</div>
+            <h3>No plan generated yet</h3>
+            <p>Add absences, confirm coverage staff availability, then click <strong>Generate Plan</strong>.</p>
+          </div>
+        )}
+        {!generating && generated && viewMode === 'timeline' && (
+          <TeacherTimeline plan={plan} absences={absences} showNocover={showNocover} onBlockClick={onBlockClick} />
+        )}
+        {!generating && generated && viewMode === 'table' && (
+          <PlanTable plan={plan} onBlockClick={onBlockClick} />
+        )}
+        {!generating && generated && viewMode === 'subs' && (
+          <SubTimeline plan={plan} onBlockClick={onBlockClick} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AbsentPanel({ absences, onEdit, onAdd, searchQ, onSearch }) {
+  const filtered = absences.filter(a => a.name.toLowerCase().includes(searchQ.toLowerCase()) || a.subject.toLowerCase().includes(searchQ.toLowerCase()));
+  const cntMap = {};
+  ALL_TEACHERS.forEach(t => { cntMap[t.name] = t.blocks.filter(b => b.needs).length; });
+  return (
+    <div className="panel panel-left">
+      <div className="pnl-hd">
+        <h2>Absent Staff</h2>
+        <span className="pnl-count">{absences.length}</span>
+      </div>
+      <div className="pnl-search">
+        <input placeholder="Search…" value={searchQ} onChange={e=>onSearch(e.target.value)} />
+      </div>
+      <div className="pnl-scroll">
+        {filtered.map(a => (
+          <div key={a.name} className="abs-row">
+            <div className="abs-info">
+              <div className="abs-name">{a.name}</div>
+              <div className="abs-subj">{a.subject}</div>
+              <div>
+                <span className={`abs-badge ${a.emergency ? 'ab-emergency' : a.absenceType === 'Full Day' ? 'ab-full' : 'ab-partial'}`}>
+                  {a.emergency ? '⚡ Emergency' : a.absenceType}
+                </span>
+              </div>
+              <div className="abs-blocks">{cntMap[a.name] || 0} blocks need coverage</div>
+            </div>
+            <button className="btn-link btn-sm" onClick={()=>onEdit(a)}>Edit</button>
+          </div>
+        ))}
+        <div className="add-row">
+          <button className="add-btn" onClick={onAdd}>+ Add absence</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StaffPanel({ staff, planRows, onToggle, searchQ, onSearch }) {
+  const filtered = staff.filter(s => s.name.toLowerCase().includes(searchQ.toLowerCase()) || s.role.toLowerCase().includes(searchQ.toLowerCase()));
+  const active = staff.filter(s => s.active).length;
+  // Count assignments per person from plan
+  const assignCounts = {};
+  planRows.filter(r => r.status === 'Assigned').forEach(r => { assignCounts[r.coverage] = (assignCounts[r.coverage]||0) + 1; });
+
+  return (
+    <div className="panel panel-right">
+      <div className="pnl-hd">
+        <h2>Coverage Staff</h2>
+        <span className="pnl-count">{active}/{staff.length} active</span>
+      </div>
+      <div className="pnl-search">
+        <input placeholder="Search…" value={searchQ} onChange={e=>onSearch(e.target.value)} />
+      </div>
+      <div className="pnl-scroll">
+        {filtered.map(s => (
+          <div key={s.name} className={`staff-row ${s.active?'':'off'}`}>
+            <label className="tog">
+              <input type="checkbox" checked={s.active} onChange={e=>onToggle(s.name, e.target.checked)} />
+              <span className="tog-sl"></span>
+            </label>
+            <div className="staff-info">
+              <div className="staff-name-row">
+                <span className="staff-name">{s.name}</span>
+                <span className={`tier t${s.tier}`}>T{s.tier}</span>
+              </div>
+              <div className="staff-avail">
+                {s.active ? (s.allDay ? `All day · ${s.start}–${s.end}` : `${s.start}–${s.end}`) : 'Not available today'}
+              </div>
+              {s.active && assignCounts[s.name] > 0 && (
+                <div className="staff-assigned">{assignCounts[s.name]} block{assignCounts[s.name]>1?'s':''} assigned</div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AbsenceModal({ absence, coverageStaff, onSave, onRemove, onClose }) {
+  const isNew = !absence || absence._new;
+  const [teacher, setTeacher] = useState(!isNew ? absence.name : ALL_TEACHERS[0].name);
+  const [absType, setAbsType] = useState(!isNew ? (absence.emergency ? 'emergency' : absence.absenceType) : 'Full Day');
+  const [startOvr, setStartOvr] = useState(!isNew ? (absence.startOverride||'') : '');
+  const [endOvr, setEndOvr] = useState(!isNew ? (absence.endOverride||'') : '');
+  const [preferred, setPreferred] = useState(!isNew ? (absence.preferredCoverage||'') : '');
+  const activeStaff = coverageStaff.filter(s => s.active);
+
+  function save() {
+    const td = ALL_TEACHERS.find(t => t.name === teacher);
+    onSave({
+      name: teacher,
+      subject: td ? td.subject : '',
+      absenceType: absType === 'emergency' ? 'Full Day' : absType,
+      emergency: absType === 'emergency',
+      startOverride: startOvr,
+      endOverride: endOvr,
+      preferredCoverage: preferred,
+      blocks: td ? td.blocks : []
+    });
+  }
+
+  return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="m-hd">
+          <h2>{isNew ? 'Add Absence' : `Edit — ${absence.name}`}</h2>
+          <button className="m-x" onClick={onClose}>×</button>
+        </div>
+        <div className="m-body">
+          {isNew && (
+            <div className="fg">
+              <label className="fl">Staff Member</label>
+              <select className="fs" value={teacher} onChange={e=>setTeacher(e.target.value)}>
+                {ALL_TEACHERS.map(t => <option key={t.name} value={t.name}>{t.name} — {t.subject}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="fg">
+            <label className="fl">Absence Type</label>
+            <div className="type-row">
+              {['Full Day','Partial Day','emergency'].map(t => (
+                <button key={t} className={`t-opt ${absType===t?'sel':''}`} onClick={()=>setAbsType(t)}>
+                  {t === 'emergency' ? '⚡ Emergency' : t}
+                </button>
+              ))}
+            </div>
+          </div>
+          {absType !== 'Full Day' && (
+            <div className="f-row">
+              <div className="fg">
+                <label className="fl">Start Time</label>
+                <input className="fi" value={startOvr} onChange={e=>setStartOvr(e.target.value)} placeholder="e.g. 10:36 AM" />
+              </div>
+              <div className="fg">
+                <label className="fl">End Time</label>
+                <input className="fi" value={endOvr} onChange={e=>setEndOvr(e.target.value)} placeholder="e.g. 3:28 PM" />
+              </div>
+            </div>
+          )}
+          <div className="fg">
+            <label className="fl">Preferred Coverage</label>
+            <select className="fs" value={preferred} onChange={e=>setPreferred(e.target.value)}>
+              <option value="">Auto-assign</option>
+              {activeStaff.map(s => (
+                <option key={s.name} value={s.name}>{s.name} (Tier {s.tier}) — {s.allDay ? 'All day' : `${s.start}–${s.end}`}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="m-ft">
+          {!isNew && <button className="btn-del" onClick={onRemove}>Remove Absence</button>}
+          <div className="sp-r"></div>
+          <button className="btn-cancel" onClick={onClose}>Cancel</button>
+          <button className="btn-save" onClick={save}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BlockModal({ block, coverageStaff, onSave, onClose }) {
+  const [coverage, setCoverage] = useState(block.coverage || '');
+  const activeStaff = coverageStaff.filter(s => s.active);
+  return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal modal-sm">
+        <div className="m-hd">
+          <h2>Reassign Block</h2>
+          <button className="m-x" onClick={onClose}>×</button>
+        </div>
+        <div className="m-body">
+          <div className="block-info-box">
+            <div className="bi-class">{block.cls} — {block.absent}</div>
+            <div className="bi-meta">{block.start} – {block.end} · Rm {block.rm} · {block.subj || block.type}</div>
+            <div className="bi-status">
+              <span className={`sp ${block.status==='Assigned'?'sp-ok':'sp-bad'}`}>
+                {block.status==='Assigned' ? `✓ ${block.coverage}` : '⚠ Unfilled'}
+              </span>
+            </div>
+          </div>
+          <div className="fg">
+            <label className="fl">Assign Coverage To</label>
+            <select className="fs" value={coverage} onChange={e=>setCoverage(e.target.value)}>
+              <option value="">— Leave unfilled —</option>
+              {activeStaff.map(s => (
+                <option key={s.name} value={s.name}>{s.name} (Tier {s.tier}) · {s.allDay ? 'All day' : `${s.start}–${s.end}`}</option>
+              ))}
+            </select>
+          </div>
+          {block.notes && <div style={{fontSize:'12px',color:'#64748b',padding:'8px 10px',background:'#f8fafc',borderRadius:'7px',borderLeft:'3px solid #e2e8f0'}}>{block.notes}</div>}
+        </div>
+        <div className="m-ft">
+          <div className="sp-r"></div>
+          <button className="btn-cancel" onClick={onClose}>Cancel</button>
+          <button className="btn-save" onClick={()=>onSave(block.id, coverage)}>Save Assignment</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── App ─── */
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [date, setDate] = useState('2026-04-27');
+  const [absences, setAbsences] = useState(ALL_TEACHERS.slice(0,6).map(a => ({...a})));
+  const [staff, setStaff] = useState(INIT_STAFF.map(s => ({...s})));
+  const [plan, setPlan] = useState([]);
+  const [generated, setGenerated] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [viewMode, setViewMode] = useState('timeline');
+  const [absModal, setAbsModal] = useState(null);
+  const [blkModal, setBlkModal] = useState(null);
+  const [absSearch, setAbsSearch] = useState('');
+  const [staffSearch, setStaffSearch] = useState('');
+  const [notif, setNotif] = useState(null);
+
+  // Sync tweaks → local state
+  useEffect(() => { setViewMode(tweaks.viewMode || 'timeline'); }, [tweaks.viewMode]);
+
+  function getDay(d) {
+    const days = ['U','M','T','W','R','F','S'];
+    const dt = new Date(d + 'T12:00:00');
+    return isNaN(dt.getTime()) ? '' : days[dt.getDay()];
+  }
+  const day = getDay(date);
+  const dayFull = {M:'Monday',T:'Tuesday',W:'Wednesday',R:'Thursday',F:'Friday'}[day] || '';
+
+  function flash(msg, type='ok') {
+    setNotif({msg, type});
+    setTimeout(()=>setNotif(null), 4500);
+  }
+
+  function handleGenerate() {
+    if (!absences.length) return;
+    setGenerating(true);
+    setPlan([]);
+    setTimeout(() => {
+      setPlan(BASE_PLAN.map(r => ({...r})));
+      setGenerated(true);
+      setGenerating(false);
+      const assigned = BASE_PLAN.filter(r=>r.status==='Assigned').length;
+      const unfilled = BASE_PLAN.filter(r=>r.status==='Unfilled').length;
+      flash(`Plan generated — ${assigned} blocks assigned, ${unfilled} unfilled.`, unfilled > 0 ? 'warn' : 'ok');
+    }, 1100);
+  }
+
+  function handleSave() {
+    flash(`${plan.length} rows written to Coverage Output.`);
+  }
+  function handleHandout() {
+    flash('Handout doc created in Google Drive.');
+  }
+
+  function handleToggleStaff(name, active) {
+    setStaff(s => s.map(m => m.name === name ? {...m, active} : m));
+  }
+
+  function handleAbsSave(abs) {
+    setAbsences(prev => {
+      const exists = prev.find(a => a.name === abs.name);
+      return exists ? prev.map(a => a.name === abs.name ? {...a, ...abs} : a) : [...prev, abs];
+    });
+    setAbsModal(null);
+    setGenerated(false);
+    setPlan([]);
+  }
+
+  function handleAbsRemove() {
+    if (absModal && absModal.name) {
+      setAbsences(prev => prev.filter(a => a.name !== absModal.name));
+      setGenerated(false);
+      setPlan([]);
+    }
+    setAbsModal(null);
+  }
+
+  function handleBlockSave(id, coverage) {
+    setPlan(prev => prev.map(r =>
+      r.id === id ? {...r, coverage, status: coverage ? 'Assigned' : 'Unfilled', mode: r.mode || (coverage ? 'Manual' : '')} : r
+    ));
+    setBlkModal(null);
+    flash(coverage ? `Block assigned to ${coverage}.` : 'Block marked unfilled.');
+  }
+
+  const assigned = plan.filter(r=>r.status==='Assigned').length;
+  const unfilled = plan.filter(r=>r.status==='Unfilled').length;
+
+  return (
+    <div style={{height:'100vh',display:'flex',flexDirection:'column'}}>
+      {/* Top bar */}
+      <div className="topbar">
+        <div className="brand">
+          <div className="brand-icon">◈</div>
+          <h1>Coverage Scheduler</h1>
+        </div>
+        <div className="sep"></div>
+        <div className="date-area">
+          <input type="date" className="date-input" value={date} onChange={e=>setDate(e.target.value)} />
+          {day && <span className="day-tag">{day} · {dayFull}</span>}
+        </div>
+        <div className="sep"></div>
+        <div className="stats-row">
+          <div className="stat s-absent"><span className="n">{absences.length}</span> absent</div>
+          {generated && <div className="stat s-assigned"><span className="n">{assigned}</span> assigned</div>}
+          {generated && unfilled > 0 && <div className="stat s-unfilled"><span className="n">{unfilled}</span> unfilled</div>}
+          {generated && <div className="stat s-blocks"><span className="n">{plan.length}</span> blocks</div>}
+        </div>
+        <div className="sep"></div>
+        <div className="top-actions">
+          <button className="btn btn-primary" onClick={handleGenerate} disabled={generating || absences.length === 0}>
+            {generating ? 'Generating…' : generated ? 'Re-generate' : 'Generate Plan'}
+          </button>
+          {generated && <button className="btn btn-ghost" onClick={handleSave}>Save Output</button>}
+          {generated && <button className="btn btn-ghost" onClick={handleHandout}>Handout</button>}
+        </div>
+      </div>
+
+      {/* Notification */}
+      {notif && (
+        <div className={`notif ${notif.type}`} key={notif.msg}>
+          {notif.type === 'ok' ? '✓' : notif.type === 'warn' ? '⚠' : '✗'} {notif.msg}
+          <button onClick={()=>setNotif(null)} style={{marginLeft:'auto',background:'none',border:'none',cursor:'pointer',opacity:0.6,fontSize:'14px'}}>×</button>
+        </div>
+      )}
+
+      {/* Main layout */}
+      <div className="layout">
+        <AbsentPanel absences={absences} onEdit={setAbsModal} onAdd={()=>setAbsModal({_new:true})}
+          searchQ={absSearch} onSearch={setAbsSearch} />
+        <PlanPanel plan={plan} generated={generated} generating={generating}
+          viewMode={viewMode} setViewMode={v=>{ setViewMode(v); setTweak('viewMode', v); }}
+          absences={absences} showNocover={tweaks.showNocover !== false} onBlockClick={setBlkModal} />
+        <StaffPanel staff={staff} planRows={plan} onToggle={handleToggleStaff}
+          searchQ={staffSearch} onSearch={setStaffSearch} />
+      </div>
+
+      {/* Modals */}
+      {absModal && (
+        <AbsenceModal absence={absModal._new ? null : absModal}
+          coverageStaff={staff} onSave={handleAbsSave} onRemove={handleAbsRemove} onClose={()=>setAbsModal(null)} />
+      )}
+      {blkModal && (
+        <BlockModal block={blkModal} coverageStaff={staff}
+          onSave={handleBlockSave} onClose={()=>setBlkModal(null)} />
+      )}
+
+      {/* Tweaks */}
+      <TweaksPanel tweaks={tweaks} setTweak={setTweak}>
+        <TweakSection label="Plan View" />
+        <TweakRadio label="View Mode" value={tweaks.viewMode}
+          options={['timeline','table','subs']}
+          onChange={v=>{ setTweak('viewMode',v); setViewMode(v); }} />
+        <TweakSection label="Timeline" />
+        <TweakToggle label="Show non-coverage blocks" value={tweaks.showNocover !== false}
+          onChange={v=>setTweak('showNocover',v)} />
+      </TweaksPanel>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

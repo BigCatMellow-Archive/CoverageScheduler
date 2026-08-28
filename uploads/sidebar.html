@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= include('sidebarcss'); ?>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Coverage Scheduler</h1>
+          <p>Pick the date, mark absences, preview the plan, then save it to Coverage Output.</p>
+        </div>
+      </header>
+
+      <section class="card controls">
+        <div class="field-row date-control-row">
+          <label>
+            <span>Date</span>
+            <input id="dateInput" type="date">
+          </label>
+          <div class="derived-day-card" aria-live="polite">
+            <span>Day</span>
+            <strong id="dayDisplay">—</strong>
+          </div>
+        </div>
+        <div class="button-row">
+          <button id="loadBtn" class="primary">Load day</button>
+          <button id="emergencyBtn">Emergency coverage</button>
+          <button id="generateBtn">Generate preview</button>
+          <button id="saveBtn">Write to output</button>
+          <button id="handoutBtn">Create handouts</button>
+        </div>
+        <div id="status" class="status muted">Loading…</div>
+      </section>
+
+      <section class="grid two-up">
+        <div class="card">
+          <div class="section-head">
+            <h2>Teachers needing coverage</h2>
+            <button id="saveAbsencesBtn" class="small">Save changes</button>
+          </div>
+          <input id="staffSearch" class="search" type="search" placeholder="Search teacher or staff name">
+          <div id="absenceList" class="list-block"></div>
+          <p class="hint">Select a teacher to set full-day, partial-day, or emergency coverage details.</p>
+        </div>
+
+        <div class="card">
+          <div class="section-head">
+            <h2>Coverage staff</h2>
+          </div>
+          <input id="coverageSearch" class="search" type="search" placeholder="Search coverage staff">
+          <div id="coverageList" class="list-block"></div>
+          <p class="hint">Use the ON/OFF switch to activate or deactivate a sub for the selected date, or click Edit to change availability details.</p>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>Preview summary</h2>
+        </div>
+        <div id="summary" class="summary-grid"></div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>Plan preview</h2>
+        </div>
+        <div id="previewTableWrap" class="table-wrap"></div>
+      </section>
+    </div>
+
+    <!-- ── Absence details modal ── -->
+    <div id="absenceModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="absenceModalTitle">
+      <div class="modal">
+        <div class="section-head">
+          <h2 id="absenceModalTitle">Absence details</h2>
+          <button id="modalCloseBtn" class="small" type="button">Close</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="field-row">
+            <label>
+              <span>Teacher</span>
+              <select id="modalTeacher"></select>
+            </label>
+          </div>
+
+          <label class="check-row">
+            <input id="modalAllDay" type="checkbox" checked>
+            <span>Gone all day</span>
+          </label>
+
+          <div id="modalTimeFields" class="field-row hidden">
+            <label>
+              <span>Gone from</span>
+              <select id="modalStart"></select>
+            </label>
+            <label>
+              <span>Until</span>
+              <select id="modalEnd"></select>
+            </label>
+          </div>
+
+          <label class="check-row">
+            <input id="modalEmergency" type="checkbox">
+            <span>Emergency coverage</span>
+          </label>
+
+          <div class="field-row">
+            <label>
+              <span>Assign to</span>
+              <select id="modalPreferred">
+                <option value="">Auto-assign</option>
+              </select>
+            </label>
+          </div>
+
+          <p id="modalHelp" class="hint"></p>
+        </div>
+
+        <div class="button-row modal-actions">
+          <button id="modalRemoveBtn" type="button">Remove absence</button>
+          <button id="modalSaveBtn" class="primary" type="button">Save absence</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Coverage staff edit modal ── -->
+    <div id="coverageModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="coverageModalTitle">
+      <div class="modal">
+        <div class="section-head">
+          <h2 id="coverageModalTitle">Edit coverage staff</h2>
+          <button id="covCloseBtn" class="small" type="button">Close</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="field-row">
+            <label>
+              <span>Name</span>
+              <input id="covName" type="text" readonly>
+            </label>
+            <label>
+              <span>Tier</span>
+              <select id="covTier">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="check-row">
+            <input id="covAllDay" type="checkbox">
+            <span>Can cover all day</span>
+          </label>
+
+          <div class="availability-panel">
+            <div class="switch-setting-row">
+              <div>
+                <strong>Available on selected date</strong>
+                <div class="hint no-margin">This writes an override for the date selected on the home screen.</div>
+              </div>
+              <label class="switch-control modal-switch" title="Available on selected date">
+                <input id="covActive" type="checkbox">
+                <span class="switch-slider"></span>
+                <span class="switch-text" data-on="ON" data-off="OFF"></span>
+              </label>
+            </div>
+
+            <div class="field-row">
+              <label>
+                <span>Available from</span>
+                <select id="covStart"></select>
+              </label>
+              <label>
+                <span>Available until</span>
+                <select id="covEnd"></select>
+              </label>
+            </div>
+            <p class="hint">Start and end times are also date-specific for the selected date.</p>
+          </div>
+
+          <div class="field-row">
+            <label>
+              <span>Default available days</span>
+              <input id="covDays" type="text" placeholder="e.g. M,T,W,F or blank for all weekdays">
+            </label>
+          </div>
+
+          <div class="field-row">
+            <label>
+              <span>Default start</span>
+              <select id="covDefaultStart"></select>
+            </label>
+            <label>
+              <span>Default end</span>
+              <select id="covDefaultEnd"></select>
+            </label>
+          </div>
+
+          <div class="field-row">
+            <label>
+              <span>Allowed grades</span>
+              <input id="covGrades" type="text" placeholder="e.g. K-5, 6-8 or leave blank for all">
+            </label>
+          </div>
+
+          <div class="field-row">
+            <label>
+              <span>Allowed subjects</span>
+              <input id="covSubjects" type="text" placeholder="e.g. Math, Science or leave blank for all">
+            </label>
+          </div>
+
+          <div class="field-row">
+            <label>
+              <span>Max blocks per day</span>
+              <input id="covMaxBlocks" type="number" min="1" placeholder="Blank = no limit">
+            </label>
+            <label>
+              <span>Max teachers per day</span>
+              <input id="covMaxTeachers" type="number" min="1" placeholder="Blank = no limit">
+            </label>
+          </div>
+
+          <div class="field-row">
+            <label>
+              <span>Notes</span>
+              <input id="covNotes" type="text">
+            </label>
+          </div>
+        </div>
+
+        <div class="button-row modal-actions">
+          <button id="covCancelBtn" type="button">Cancel</button>
+          <button id="covSaveBtn" class="primary" type="button">Save changes</button>
+        </div>
+      </div>
+    </div>
+
+    <?!= include('sidebarjs'); ?>
+  </body>
+</html>

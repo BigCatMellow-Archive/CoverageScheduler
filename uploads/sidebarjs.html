@@ -1,0 +1,682 @@
+<script>
+  const state = {
+    allStaff: [],
+    allCoverageStaff: [],
+    currentAbsences: [],
+    previewRows: []
+  };
+
+  document.addEventListener('DOMContentLoaded', init);
+
+  function init() {
+    bindEvents();
+    google.script.run
+      .withSuccessHandler(loadBootstrap)
+      .withFailureHandler(showError)
+      .getSidebarBootstrap({});
+  }
+
+  function bindEvents() {
+    byId('loadBtn').addEventListener('click', refreshDay);
+    byId('dateInput').addEventListener('change', handleDateChange);
+    byId('emergencyBtn').addEventListener('click', openEmergencyModal);
+    byId('saveAbsencesBtn').addEventListener('click', saveAbsences);
+    byId('generateBtn').addEventListener('click', generatePreview);
+    byId('saveBtn').addEventListener('click', savePreview);
+    byId('handoutBtn').addEventListener('click', createHandouts);
+    byId('staffSearch').addEventListener('input', renderAbsenceList);
+    byId('coverageSearch').addEventListener('input', renderCoverageList);
+    byId('absenceList').addEventListener('click', handleAbsenceListClick);
+    byId('coverageList').addEventListener('click', handleCoverageListClick);
+    byId('coverageList').addEventListener('change', handleCoverageListChange);
+    byId('modalCloseBtn').addEventListener('click', closeAbsenceModal);
+    byId('modalSaveBtn').addEventListener('click', saveModalAbsence);
+    byId('modalRemoveBtn').addEventListener('click', removeModalAbsence);
+    byId('modalTeacher').addEventListener('change', () => populateModalForTeacher(byId('modalTeacher').value, false));
+    byId('modalAllDay').addEventListener('change', updateModalTimeVisibility);
+    byId('absenceModal').addEventListener('click', event => {
+      if (event.target.id === 'absenceModal') closeAbsenceModal();
+    });
+    byId('covCloseBtn').addEventListener('click', closeCoverageModal);
+    byId('covCancelBtn').addEventListener('click', closeCoverageModal);
+    byId('covSaveBtn').addEventListener('click', saveCoverageModal);
+    byId('coverageModal').addEventListener('click', event => {
+      if (event.target.id === 'coverageModal') closeCoverageModal();
+    });
+  }
+
+  // ── Bootstrap & refresh ───────────────────────────────────
+
+  function loadBootstrap(data) {
+    byId('dateInput').value = data.today;
+    updateDerivedDayDisplay(data.day);
+    state.allStaff = data.allStaff || [];
+    state.allCoverageStaff = data.allCoverageStaff || [];
+    state.currentAbsences = normalizeAbsenceState(data.currentAbsences || []);
+    state.previewRows = (data.currentPreview && data.currentPreview.rows) || [];
+    renderAll();
+    setStatus('Ready.');
+  }
+
+  function refreshDay() {
+    const payload = currentSelection();
+    setStatus('Loading selected day...');
+    google.script.run
+      .withSuccessHandler(data => {
+        state.allStaff = data.allStaff || [];
+        state.allCoverageStaff = data.allCoverageStaff || [];
+        state.currentAbsences = normalizeAbsenceState(data.currentAbsences || []);
+        state.previewRows = [];
+        renderAll();
+        setStatus('Day loaded.');
+      })
+      .withFailureHandler(showError)
+      .getSidebarBootstrap(payload);
+  }
+
+  // ── Absences ──────────────────────────────────────────────
+
+  function saveAbsences() {
+    const payload = currentSelection();
+    payload.absences = state.currentAbsences;
+
+    if (!payload.date) { setStatus('Pick a date first.'); return; }
+    if (!payload.day) { setStatus('The selected date does not have a usable day code.'); return; }
+
+    setStatus('Saving absence details...');
+    google.script.run
+      .withSuccessHandler(absences => {
+        state.currentAbsences = normalizeAbsenceState(absences || []);
+        renderAbsenceList();
+        renderSummary({
+          totalAbsentStaff: state.currentAbsences.length,
+          totalBlocks: state.previewRows.length,
+          assignedBlocks: state.previewRows.filter(r => r.Status === 'Assigned').length,
+          unfilledBlocks: state.previewRows.filter(r => r.Status !== 'Assigned').length
+        });
+        setStatus('Absence details saved for this day.');
+      })
+      .withFailureHandler(showError)
+      .replaceDailyAbsences(payload);
+  }
+
+  function generatePreview() {
+    const payload = currentSelection();
+    setStatus('Generating preview...');
+    google.script.run
+      .withSuccessHandler(result => {
+        state.previewRows = result.rows || [];
+        renderSummary(result.summary || {});
+        renderPreviewTable();
+
+        if (!state.previewRows.length) {
+          setStatus('No preview rows were generated. Check that you saved absences and that Teacher Schedule rows need coverage.');
+          return;
+        }
+
+        setStatus('Preview generated.');
+      })
+      .withFailureHandler(showError)
+      .generateCoveragePreview(payload);
+  }
+
+  function savePreview() {
+    if (!state.previewRows.length) { setStatus('Generate a preview first.'); return; }
+    setStatus('Writing preview to Coverage Output...');
+    google.script.run
+      .withSuccessHandler(result => {
+        setStatus('Saved ' + result.savedRows + ' row(s) to Coverage Output.');
+      })
+      .withFailureHandler(showError)
+      .saveCoveragePlan({ rows: state.previewRows });
+  }
+
+  function createHandouts() {
+    if (!state.previewRows.length) { setStatus('Generate a preview first.'); return; }
+    setStatus('Creating handout doc...');
+    google.script.run
+      .withSuccessHandler(result => {
+        setStatus('Handout doc created: ' + (result.name || 'Done.'));
+      })
+      .withFailureHandler(showError)
+      .createCoverageHandoutDocFromLatestPreview();
+  }
+
+  // ── Render all ────────────────────────────────────────────
+
+  function renderAll() {
+    renderAbsenceList();
+    renderCoverageList();
+    renderSummary({
+      totalAbsentStaff: state.currentAbsences.length,
+      totalBlocks: state.previewRows.length,
+      assignedBlocks: state.previewRows.filter(r => r.Status === 'Assigned').length,
+      unfilledBlocks: state.previewRows.filter(r => r.Status !== 'Assigned').length
+    });
+    renderPreviewTable();
+  }
+
+  // ── Absence list ──────────────────────────────────────────
+
+  function renderAbsenceList() {
+    const wrap = byId('absenceList');
+    const absencesByName = new Map((state.currentAbsences || []).map(row => [row.staffName, row]));
+    const query = (byId('staffSearch').value || '').trim().toLowerCase();
+    const rows = state.allStaff.filter(item => item.name.toLowerCase().includes(query));
+
+    wrap.innerHTML = rows.length ? rows.map(item => {
+      const absence = absencesByName.get(item.name);
+      const status = absence ? '<div class="absence-status">' + escapeHtml(absenceLabel(absence)) + '</div>' : '';
+      const currentInfo = currentOrNextBlockLine(item);
+      return '<div class="list-item">' +
+        '<div class="staff-main">' +
+          '<div><strong>' + escapeHtml(item.name) + '</strong></div>' +
+          '<div class="meta">' + escapeHtml(item.role || '') + '</div>' +
+          currentInfo +
+          status +
+        '</div>' +
+        '<button class="small" type="button" data-action="edit-absence" data-name="' + escapeHtml(item.name) + '">' + (absence ? 'Edit' : 'Set') + '</button>' +
+      '</div>';
+    }).join('') : '<div class="list-item muted">No staff found for this day.</div>';
+  }
+
+  // ── Coverage staff list ───────────────────────────────────
+
+  function renderCoverageList() {
+    const wrap = byId('coverageList');
+    const query = (byId('coverageSearch').value || '').trim().toLowerCase();
+    const rows = state.allCoverageStaff.filter(item => item.name.toLowerCase().includes(query));
+
+    wrap.innerHTML = rows.length ? rows.map(item => {
+      const badgeClass = item.activeToday ? 't' + String(item.tier || 3) : 'off';
+      const badgeLabel = item.activeToday ? 'Tier ' + String(item.tier || 3) : 'OFF';
+      const availability = coverageAvailabilityLine(item);
+      const rowClass = item.activeToday ? '' : ' inactive';
+      const checked = item.activeToday ? 'checked' : '';
+      const override = item.hasDateOverride ? '<span class="badge override-badge">date override</span>' : '';
+
+      return '<div class="list-item coverage-staff-row' + rowClass + '">' +
+        '<label class="switch-control list-switch" title="Turn sub availability on or off for the selected date">' +
+          '<input type="checkbox" ' + checked + ' data-action="toggle-active" data-name="' + escapeHtml(item.name) + '">' +
+          '<span class="switch-slider"></span>' +
+          '<span class="switch-text" data-on="ON" data-off="OFF"></span>' +
+        '</label>' +
+        '<div class="staff-main">' +
+          '<div><strong>' + escapeHtml(item.name) + '</strong> <span class="badge ' + badgeClass + '">' + escapeHtml(badgeLabel) + '</span> ' + override + '</div>' +
+          '<div class="meta">' + escapeHtml(item.role || '') + ' — ' + escapeHtml(availability) + '</div>' +
+          (item.availabilityNotes ? '<div class="meta">' + escapeHtml(item.availabilityNotes) + '</div>' : '') +
+          (item.notes ? '<div class="meta">' + escapeHtml(item.notes) + '</div>' : '') +
+        '</div>' +
+        '<div class="item-actions">' +
+          '<button class="small" type="button" data-action="edit-coverage" data-name="' + escapeHtml(item.name) + '">Edit</button>' +
+        '</div>' +
+      '</div>';
+    }).join('') : '<div class="list-item muted">No coverage staff found.</div>';
+  }
+
+  function handleCoverageListClick(event) {
+    const editBtn = event.target.closest('[data-action="edit-coverage"]');
+    if (editBtn) {
+      openCoverageModal(editBtn.dataset.name);
+      return;
+    }
+  }
+
+  function handleCoverageListChange(event) {
+    const toggle = event.target.closest('[data-action="toggle-active"]');
+    if (toggle) {
+      toggleCoverageActive(toggle.dataset.name, toggle.checked);
+    }
+  }
+
+  // ── Toggle coverage staff active ──────────────────────────
+
+  function toggleCoverageActive(name, available) {
+    setStatus((available ? 'Activating ' : 'Deactivating ') + name + ' for selected date...');
+    var selection = currentSelection();
+    google.script.run
+      .withSuccessHandler(result => {
+        state.allCoverageStaff = result || [];
+        renderCoverageList();
+        setStatus(name + (available ? ' activated.' : ' deactivated.'));
+      })
+      .withFailureHandler(showError)
+      .toggleCoverageStaffActive({ name: name, date: selection.date, day: selection.day, available: available });
+  }
+
+  // ── Coverage staff edit modal ─────────────────────────────
+
+  function openCoverageModal(name) {
+    const staff = state.allCoverageStaff.find(s => s.name === name);
+    if (!staff) return;
+
+    var timeOptions = coverageTimeOptions(staff);
+    fillTimeSelect(byId('covStart'), timeOptions.values, true);
+    fillTimeSelect(byId('covEnd'), timeOptions.values, true);
+    fillTimeSelect(byId('covDefaultStart'), timeOptions.values, true);
+    fillTimeSelect(byId('covDefaultEnd'), timeOptions.values, true);
+
+    byId('covName').value = staff.name;
+    byId('covTier').value = String(staff.tier || 3);
+    byId('covAllDay').checked = !!staff.allDay;
+    byId('covActive').checked = !!staff.activeToday;
+    byId('covStart').value = staff.selectedStart || '';
+    byId('covEnd').value = staff.selectedEnd || '';
+    byId('covDays').value = staff.availableDays || '';
+    byId('covDefaultStart').value = staff.defaultStart || '';
+    byId('covDefaultEnd').value = staff.defaultEnd || '';
+    byId('covGrades').value = staff.allowedGrades === '*' ? '' : (staff.allowedGrades || '');
+    byId('covSubjects').value = staff.allowedSubjects === '*' ? '' : (staff.allowedSubjects || '');
+    byId('covMaxBlocks').value = staff.maxBlocksPerDay || '';
+    byId('covMaxTeachers').value = staff.maxTeachersPerDay || '';
+    byId('covNotes').value = staff.notes || '';
+
+    byId('coverageModal').classList.remove('hidden');
+  }
+
+  function closeCoverageModal() {
+    byId('coverageModal').classList.add('hidden');
+  }
+
+  function saveCoverageModal() {
+    const name = byId('covName').value;
+    if (!name) return;
+
+    var selection = currentSelection();
+    const payload = {
+      name: name,
+      date: selection.date,
+      day: selection.day,
+      tier: Number(byId('covTier').value) || 3,
+      canCoverAllDay: byId('covAllDay').checked,
+      availableOnDate: byId('covActive').checked,
+      selectedStart: byId('covStart').value,
+      selectedEnd: byId('covEnd').value,
+      availableDays: byId('covDays').value.trim(),
+      defaultStart: byId('covDefaultStart').value,
+      defaultEnd: byId('covDefaultEnd').value,
+      allowedGrades: byId('covGrades').value.trim(),
+      allowedSubjects: byId('covSubjects').value.trim(),
+      maxBlocksPerDay: byId('covMaxBlocks').value.trim(),
+      maxTeachersPerDay: byId('covMaxTeachers').value.trim(),
+      notes: byId('covNotes').value.trim()
+    };
+
+    if (payload.selectedStart && payload.selectedEnd && minutesFromDisplay(payload.selectedStart) >= minutesFromDisplay(payload.selectedEnd)) {
+      setStatus('Availability end time needs to be after the start time.');
+      return;
+    }
+    if (payload.defaultStart && payload.defaultEnd && minutesFromDisplay(payload.defaultStart) >= minutesFromDisplay(payload.defaultEnd)) {
+      setStatus('Default availability end time needs to be after the start time.');
+      return;
+    }
+
+    setStatus('Saving changes for ' + name + '...');
+    closeCoverageModal();
+
+    google.script.run
+      .withSuccessHandler(result => {
+        state.allCoverageStaff = result || [];
+        renderCoverageList();
+        setStatus(name + ' updated.');
+      })
+      .withFailureHandler(showError)
+      .updateCoverageStaff(payload);
+  }
+
+  // ── Summary & preview table ───────────────────────────────
+
+  function renderSummary(summary) {
+    const wrap = byId('summary');
+    const cards = [
+      ['Absent staff', summary.totalAbsentStaff || 0],
+      ['Blocks needing coverage', summary.totalBlocks || 0],
+      ['Assigned blocks', summary.assignedBlocks || 0],
+      ['Unfilled blocks', summary.unfilledBlocks || 0],
+      ['Whole-day assignments', summary.wholeDayAssignments || 0],
+      ['Split-day cases', summary.splitAssignments || 0]
+    ];
+    wrap.innerHTML = cards.map(function(pair) {
+      return '<div class="summary-card">' +
+        '<strong>' + escapeHtml(String(pair[1])) + '</strong>' +
+        '<span class="muted">' + escapeHtml(pair[0]) + '</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  function renderPreviewTable() {
+    const wrap = byId('previewTableWrap');
+    if (!state.previewRows.length) {
+      wrap.innerHTML = '<p class="hint" style="padding:10px;">No preview data yet.</p>';
+      return;
+    }
+    wrap.innerHTML =
+      '<table>' +
+        '<thead><tr>' +
+          '<th>Time</th><th>Absent</th><th>Class</th><th>Subject</th><th>Room</th><th>Coverage</th><th>Mode</th><th>Status</th><th>Notes</th>' +
+        '</tr></thead>' +
+        '<tbody>' +
+          state.previewRows.map(function(row) {
+            var cls = (row.Status || '') !== 'Assigned' ? ' class="unfilled"' : '';
+            return '<tr' + cls + '>' +
+              '<td>' + escapeHtml(row.Start) + '-' + escapeHtml(row.End) + '</td>' +
+              '<td>' + escapeHtml(row.Absent_Staff || '') + '</td>' +
+              '<td>' + escapeHtml(row.Class || row.Subject || row.Assignment_Type || '') + '</td>' +
+              '<td>' + escapeHtml(row.Subject || '') + '</td>' +
+              '<td>' + escapeHtml(row.Room || '') + '</td>' +
+              '<td>' + escapeHtml(row.Assigned_Coverage || '') + '</td>' +
+              '<td>' + escapeHtml(row.Coverage_Mode || '') + '</td>' +
+              '<td>' + escapeHtml(row.Status || '') + '</td>' +
+              '<td>' + escapeHtml(row.Notes || '') + '</td>' +
+            '</tr>';
+          }).join('') +
+        '</tbody>' +
+      '</table>';
+  }
+
+  function currentOrNextBlockLine(item) {
+    var blocks = (item.blocks || [])
+      .filter(function(block) { return block.start && block.end; })
+      .slice()
+      .sort(function(a, b) { return minutesFromDisplay(a.start) - minutesFromDisplay(b.start); });
+    if (!blocks.length) return '<div class="meta">No schedule blocks for this day.</div>';
+
+    var now = new Date();
+    var nowMinutes = now.getHours() * 60 + now.getMinutes();
+    var current = blocks.find(function(block) {
+      return minutesFromDisplay(block.start) <= nowMinutes && minutesFromDisplay(block.end) > nowMinutes;
+    });
+    var next = blocks.find(function(block) {
+      return minutesFromDisplay(block.start) >= nowMinutes;
+    });
+    var block = current || next || blocks[blocks.length - 1];
+    var label = current ? 'Now' : (next ? 'Next' : 'Last');
+    var blockName = blockDisplayName(block);
+    return '<div class="current-block">' +
+      '<span class="badge now-badge">' + escapeHtml(label) + '</span> ' +
+      '<span>' + escapeHtml(block.start || '') + '-' + escapeHtml(block.end || '') + '</span>' +
+      '<div class="current-class">' + escapeHtml(blockName) + (block.room ? ' · ' + escapeHtml(block.room) : '') + '</div>' +
+    '</div>';
+  }
+
+  function blockDisplayName(block) {
+    var pieces = [];
+    if (block.className) pieces.push(block.className);
+    if (block.subject && pieces.indexOf(block.subject) === -1) pieces.push(block.subject);
+    if (!pieces.length && block.assignmentType) pieces.push(block.assignmentType);
+    return pieces.join(' — ') || 'Scheduled block';
+  }
+
+  // ── Absence list click → modal ────────────────────────────
+
+  function handleAbsenceListClick(event) {
+    var button = event.target.closest('[data-action="edit-absence"]');
+    if (!button) return;
+    openAbsenceModal(button.dataset.name, false);
+  }
+
+  function openEmergencyModal() {
+    openAbsenceModal((state.allStaff[0] && state.allStaff[0].name) || '', true);
+  }
+
+  function openAbsenceModal(staffName, emergency) {
+    populateTeacherSelect(staffName);
+    populatePreferredCoverageSelect();
+    populateModalForTeacher(byId('modalTeacher').value, emergency);
+    byId('absenceModal').classList.remove('hidden');
+  }
+
+  function closeAbsenceModal() {
+    byId('absenceModal').classList.add('hidden');
+  }
+
+  function populateTeacherSelect(selectedName) {
+    var select = byId('modalTeacher');
+    select.innerHTML = state.allStaff.map(function(item) {
+      return '<option value="' + escapeHtml(item.name) + '"' + (item.name === selectedName ? ' selected' : '') + '>' + escapeHtml(item.name) + '</option>';
+    }).join('');
+  }
+
+  function populatePreferredCoverageSelect() {
+    var select = byId('modalPreferred');
+    var activeStaff = state.allCoverageStaff.filter(function(s) { return s.activeToday; });
+    select.innerHTML = '<option value="">Auto-assign</option>' +
+      activeStaff.map(function(s) {
+        return '<option value="' + escapeHtml(s.name) + '">' + escapeHtml(s.name) + ' (Tier ' + s.tier + ')</option>';
+      }).join('');
+  }
+
+  function populateModalForTeacher(staffName, emergency) {
+    var existing = findAbsence(staffName);
+    var options = timeOptionsForStaff(staffName);
+    fillTimeSelect(byId('modalStart'), options.starts);
+    fillTimeSelect(byId('modalEnd'), options.ends);
+
+    byId('modalTeacher').value = staffName;
+    byId('modalAllDay').checked = existing ? existing.allDay : !emergency;
+    byId('modalEmergency').checked = emergency || !!(existing && existing.emergency);
+    byId('modalPreferred').value = (existing && existing.preferredCoverage) || '';
+
+    if (existing && !existing.allDay) {
+      byId('modalStart').value = existing.startOverride || options.defaultStart || '';
+      byId('modalEnd').value = existing.endOverride || options.defaultEnd || '';
+    } else if (emergency) {
+      byId('modalStart').value = options.emergencyStart || options.defaultStart || '';
+      byId('modalEnd').value = options.defaultEnd || '';
+    } else {
+      byId('modalStart').value = options.defaultStart || '';
+      byId('modalEnd').value = options.defaultEnd || '';
+    }
+
+    updateModalTimeVisibility();
+    byId('modalHelp').textContent = options.starts.length
+      ? "Times come from this teacher's schedule for the selected day."
+      : 'No schedule blocks were found for this teacher on the selected day.';
+  }
+
+  function updateModalTimeVisibility() {
+    byId('modalTimeFields').classList.toggle('hidden', byId('modalAllDay').checked);
+  }
+
+  function saveModalAbsence() {
+    var staffName = byId('modalTeacher').value;
+    if (!staffName) { setStatus('Pick a teacher first.'); return; }
+
+    var allDay = byId('modalAllDay').checked;
+    var startOverride = byId('modalStart').value;
+    var endOverride = byId('modalEnd').value;
+
+    if (!allDay && (!startOverride || !endOverride)) {
+      setStatus('Pick start and end times for partial-day coverage.');
+      return;
+    }
+
+    if (!allDay && minutesFromDisplay(startOverride) >= minutesFromDisplay(endOverride)) {
+      setStatus('End time needs to be after start time.');
+      return;
+    }
+
+    upsertAbsence({
+      staffName: staffName,
+      allDay: allDay,
+      absenceType: allDay ? 'Full Day' : 'Partial Day',
+      startOverride: allDay ? '' : startOverride,
+      endOverride: allDay ? '' : endOverride,
+      emergency: byId('modalEmergency').checked,
+      notes: byId('modalEmergency').checked ? 'Emergency coverage' : '',
+      preferredCoverage: byId('modalPreferred').value || ''
+    });
+    closeAbsenceModal();
+    saveAbsences();
+  }
+
+  function removeModalAbsence() {
+    var staffName = byId('modalTeacher').value;
+    state.currentAbsences = state.currentAbsences.filter(function(row) { return row.staffName !== staffName; });
+    closeAbsenceModal();
+    saveAbsences();
+  }
+
+  // ── Absence state helpers ─────────────────────────────────
+
+  function normalizeAbsenceState(rows) {
+    return rows.map(function(row) {
+      var type = String(row.absenceType || row.Absence_Type || 'Full Day');
+      return {
+        staffName: row.staffName || row.Staff_Name || '',
+        allDay: type === 'Full Day',
+        absenceType: type,
+        startOverride: row.startOverride || row.Start_Override || '',
+        endOverride: row.endOverride || row.End_Override || '',
+        emergency: !!row.emergency || String(row.notes || row.Notes || '').toLowerCase().indexOf('emergency') !== -1,
+        notes: row.notes || row.Notes || '',
+        preferredCoverage: row.preferredCoverage || row.Preferred_Coverage || ''
+      };
+    }).filter(function(row) { return row.staffName; });
+  }
+
+  function upsertAbsence(absence) {
+    state.currentAbsences = state.currentAbsences.filter(function(row) { return row.staffName !== absence.staffName; }).concat([absence]);
+    renderAbsenceList();
+  }
+
+  function findAbsence(staffName) {
+    return state.currentAbsences.find(function(row) { return row.staffName === staffName; });
+  }
+
+  function absenceLabel(absence) {
+    var label = '';
+    if (absence.emergency) label = 'Emergency ' + (absence.startOverride || '') + '-' + (absence.endOverride || '');
+    else if (absence.allDay) label = 'Absent all day';
+    else label = 'Absent ' + (absence.startOverride || '') + '-' + (absence.endOverride || '');
+    if (absence.preferredCoverage) label += ' → ' + absence.preferredCoverage;
+    return label;
+  }
+
+  function coverageAvailabilityLine(item) {
+    if (!item.activeToday) return 'not available on selected date';
+    var mode = item.allDay ? 'all-day coverer' : 'schedule-based coverer';
+    var windowText = '';
+    if (item.selectedStart || item.selectedEnd) {
+      windowText = ' · ' + (item.selectedStart || 'start') + '-' + (item.selectedEnd || 'end');
+    }
+    var daysText = item.availableDays ? ' · default days: ' + item.availableDays : '';
+    return mode + windowText + daysText;
+  }
+
+  function coverageTimeOptions(staff) {
+    var times = [];
+    state.allStaff.forEach(function(person) {
+      (person.blocks || []).forEach(function(block) {
+        if (block.start) times.push(block.start);
+        if (block.end) times.push(block.end);
+      });
+    });
+    ['7:00 AM', '7:30 AM', '8:00 AM', '8:30 AM', '9:00 AM', '9:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM', '12:00 PM', '12:30 PM', '1:00 PM', '1:30 PM', '2:00 PM', '2:30 PM', '3:00 PM', '3:30 PM', '4:00 PM', staff.selectedStart, staff.selectedEnd, staff.defaultStart, staff.defaultEnd]
+      .forEach(function(value) { if (value) times.push(value); });
+    return { values: uniqueSortedTimes(times) };
+  }
+
+  // ── Time helpers ──────────────────────────────────────────
+
+  function timeOptionsForStaff(staffName) {
+    var staff = state.allStaff.find(function(item) { return item.name === staffName; }) || {};
+    var blocks = (staff.blocks || []).filter(function(block) { return block.start && block.end; });
+    var starts = uniqueSortedTimes(blocks.map(function(block) { return block.start; }));
+    var ends = uniqueSortedTimes(blocks.map(function(block) { return block.end; }));
+    var now = new Date();
+    var nowMinutes = now.getHours() * 60 + now.getMinutes();
+    var currentBlock = blocks.find(function(block) { return minutesFromDisplay(block.start) <= nowMinutes && minutesFromDisplay(block.end) > nowMinutes; });
+    var nextBlock = blocks.find(function(block) { return minutesFromDisplay(block.start) >= nowMinutes; });
+
+    return {
+      starts: starts,
+      ends: ends,
+      defaultStart: starts[0] || '',
+      defaultEnd: ends[ends.length - 1] || '',
+      emergencyStart: (currentBlock && currentBlock.start) || (nextBlock && nextBlock.start) || starts[0] || ''
+    };
+  }
+
+  function uniqueSortedTimes(values) {
+    return Array.from(new Set(values.filter(Boolean))).sort(function(a, b) { return minutesFromDisplay(a) - minutesFromDisplay(b); });
+  }
+
+  function fillTimeSelect(select, values, includeBlank) {
+    var uniqueValues = uniqueSortedTimes(values || []);
+    var options = includeBlank ? [''] : [];
+    uniqueValues.forEach(function(value) { if (options.indexOf(value) === -1) options.push(value); });
+    select.innerHTML = options.map(function(value) {
+      return '<option value="' + escapeHtml(value) + '">' + escapeHtml(value || 'No limit') + '</option>';
+    }).join('');
+  }
+
+  function minutesFromDisplay(value) {
+    var str = String(value || '').trim();
+    var match = str.match(/^(\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i);
+    if (!match) return 0;
+    var hour = Number(match[1]);
+    var minute = Number(match[2]);
+    var meridian = (match[3] || '').toUpperCase();
+    if (Number.isNaN(hour) || Number.isNaN(minute)) return 0;
+    if (meridian === 'PM' && hour < 12) hour += 12;
+    if (meridian === 'AM' && hour === 12) hour = 0;
+    return hour * 60 + minute;
+  }
+
+  // ── Utilities ─────────────────────────────────────────────
+
+  function handleDateChange() {
+    updateDerivedDayDisplay();
+    refreshDay();
+  }
+
+  function currentSelection() {
+    var date = byId('dateInput').value || localDateString(new Date());
+    var day = dayCodeFromDate(date);
+    return { date: date, day: day };
+  }
+
+  function updateDerivedDayDisplay(serverDay) {
+    var date = byId('dateInput').value || localDateString(new Date());
+    var day = serverDay || dayCodeFromDate(date) || '—';
+    var label = dayLabel(day);
+    byId('dayDisplay').textContent = label ? day + ' · ' + label : day;
+  }
+
+  function dayCodeFromDate(date) {
+    if (!date) return '';
+    var parsed = new Date(date + 'T12:00:00');
+    if (Number.isNaN(parsed.getTime())) return '';
+    return ['U', 'M', 'T', 'W', 'R', 'F', 'S'][parsed.getDay()] || '';
+  }
+
+  function dayLabel(day) {
+    return ({ U: 'Sun', M: 'Mon', T: 'Tue', W: 'Wed', R: 'Thu', F: 'Fri', S: 'Sat' })[String(day || '').toUpperCase()] || '';
+  }
+
+  function localDateString(dateObj) {
+    var year = dateObj.getFullYear();
+    var month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    var day = String(dateObj.getDate()).padStart(2, '0');
+    return year + '-' + month + '-' + day;
+  }
+
+  function byId(id) { return document.getElementById(id); }
+
+  function setStatus(text) { byId('status').textContent = text; }
+
+  function showError(err) {
+    var msg = err && err.message ? err.message : String(err || 'Unknown error');
+    setStatus('Error: ' + msg);
+  }
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+</script>
