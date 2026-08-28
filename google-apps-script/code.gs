@@ -58,6 +58,9 @@ function doGet() {
   // Keep the web app aligned with the shared Nysmith school-project theme.
   output.append(getSchoolThemeCss_());
 
+  // Give all noticeable server actions one consistent working/progress state.
+  output.append(getWorkingOverlayUi_());
+
   // Append the small Handout-link enhancement to the already-evaluated output.
   // Do not rebuild a second HtmlOutput from getContent(); doing so can interfere
   // with the Apps Script client/server bridge used by google.script.run.
@@ -158,6 +161,81 @@ function getSchoolThemeCss_() {
     '.block-info{background:#f7f8fb;border-radius:var(--radius-sm)}',
     '.error-box{border-radius:var(--radius);box-shadow:var(--shadow-card)}',
     '</style>'
+  ].join('\n');
+}
+
+/**
+ * Adds a single modal working state for server actions that may take long enough
+ * for a user to wonder whether their click registered. It wraps the existing
+ * gas() helper so every current and future caller gets the same behavior.
+ */
+function getWorkingOverlayUi_() {
+  return [
+    '<style>',
+    '.working-overlay{position:fixed;inset:0;z-index:95;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.34);backdrop-filter:blur(2px)}',
+    '.working-overlay.hidden{display:none!important}',
+    '.working-card{display:flex;align-items:center;gap:14px;min-width:280px;max-width:92vw;padding:20px 22px;background:var(--surface,#fff);border:1px solid var(--border,#e2e5eb);border-radius:var(--radius,14px);box-shadow:var(--shadow-lifted,0 10px 30px rgba(0,0,0,.12))}',
+    '.working-spinner{width:32px;height:32px;flex:0 0 32px;border:3px solid #dce2eb;border-top-color:var(--primary,#214289);border-radius:50%;animation:working-spin .72s linear infinite}',
+    '.working-title{font-size:13px;font-weight:800;color:var(--text,#1f2937);line-height:1.25}',
+    '.working-sub{margin-top:4px;font-size:10px;color:var(--text-muted,#6b7280);line-height:1.35}',
+    '@keyframes working-spin{to{transform:rotate(360deg)}}',
+    '</style>',
+    '<script>',
+    '(function(){',
+    '  var workingCount=0;',
+    '  var messages={',
+    "    webGenerateCoverage:['Generating coverage plan…','Matching schedules and available coverage staff.'],",
+    "    webCreateHandout:['Building handout…','Creating and formatting the Google Doc.'],",
+    "    webSaveCoverage:['Saving coverage plan…','Writing the plan to Coverage Output.'],",
+    "    webSaveAbsences:['Saving absences…','Updating the selected day.'],",
+    "    webSaveCoverageStaff:['Saving coverage staff…','Updating the coverage team.'],",
+    "    webDeleteCoverageStaff:['Removing coverage staff…','Updating the coverage team.'],",
+    "    webToggleCoverageStaff:['Updating availability…','Saving the daily availability change.'],",
+    "    webValidateTeacherSchedule:['Checking teacher schedule…','Validating the schedule source.']",
+    '  };',
+    '  function ensureOverlay(){',
+    "    var el=document.getElementById('workingOverlay');",
+    '    if(el)return el;',
+    "    el=document.createElement('div');",
+    "    el.id='workingOverlay';",
+    "    el.className='working-overlay hidden';",
+    "    el.setAttribute('role','status');",
+    "    el.setAttribute('aria-live','polite');",
+    "    el.innerHTML='<div class=\"working-card\"><div class=\"working-spinner\" aria-hidden=\"true\"></div><div><div id=\"workingTitle\" class=\"working-title\">Working…</div><div id=\"workingSub\" class=\"working-sub\">This can take a few seconds.</div></div></div>';",
+    '    document.body.appendChild(el);',
+    '    return el;',
+    '  }',
+    '  window.showWorking=function(title,sub){',
+    '    workingCount++;',
+    '    var el=ensureOverlay();',
+    "    document.getElementById('workingTitle').textContent=title||'Working…';",
+    "    document.getElementById('workingSub').textContent=sub||'This can take a few seconds.';",
+    "    el.classList.remove('hidden');",
+    '  };',
+    '  window.hideWorking=function(){',
+    '    workingCount=Math.max(0,workingCount-1);',
+    '    if(workingCount===0){',
+    "      var el=document.getElementById('workingOverlay');",
+    "      if(el)el.classList.add('hidden');",
+    '    }',
+    '  };',
+    "  if(typeof gas==='function'){",
+    '    var baseGas=gas;',
+    '    gas=function(method,payload){',
+    '      var message=messages[method];',
+    '      if(!message)return baseGas(method,payload);',
+    '      window.showWorking(message[0],message[1]);',
+    '      return baseGas(method,payload).then(function(result){',
+    '        window.hideWorking();',
+    '        return result;',
+    '      },function(error){',
+    '        window.hideWorking();',
+    '        throw error;',
+    '      });',
+    '    };',
+    '  }',
+    '})();',
+    '</script>'
   ].join('\n');
 }
 
