@@ -16,14 +16,17 @@ Recommended order:
 2. [Install Google Apps Script](docs/wiki/Installing-Google-Apps-Script.md)
 3. [Set Up the Workbook](docs/wiki/Workbook-Setup.md)
 4. [Teacher Schedule](docs/wiki/Teacher-Schedule.md)
-5. [Coverage Staff](docs/wiki/Coverage-Staff.md)
-6. [Deploy the Web App](docs/wiki/Deploying-the-Web-App.md)
-7. [Daily Workflow](docs/wiki/Daily-Workflow.md)
-8. [Troubleshooting](docs/wiki/Troubleshooting.md)
+5. [Staff List](docs/wiki/Staff-List.md)
+6. [Coverage Staff](docs/wiki/Coverage-Staff.md)
+7. [Deploy the Web App](docs/wiki/Deploying-the-Web-App.md)
+8. [Daily Workflow](docs/wiki/Daily-Workflow.md)
+9. [Troubleshooting](docs/wiki/Troubleshooting.md)
 
 ## What it does
 
 - Reads the school's existing teacher schedule directly from Google Sheets.
+- Uses a stable `Staff List` roster for the **+ Add Absence** picker.
+- Lets users add, edit, remove, and toggle coverage staff from the web UI.
 - Creates and maintains the scheduler-managed workbook tabs.
 - Records full-day, partial-day, and emergency absences.
 - Tracks substitute/coverage staff availability by date and weekday.
@@ -48,6 +51,7 @@ apps-script/
 
 google-apps-script/
   code.gs                       Full web-app entry point and workbook binding
+  web-ui-data.gs                Staff List adapter and coverage-team UI backend
   index.html                    Full-page Coverage Scheduler UI
   teacher-schedule-adapter.gs  Teacher Schedule adapter/validator
   setup.gs                      Workbook setup
@@ -67,7 +71,7 @@ docs/
   REVIEW.md              Repository/code review findings and technical debt
 ```
 
-## Teacher Schedule source
+## Teacher Schedule and Staff List
 
 Coverage Scheduler uses the existing `Teacher Schedule` tab directly. The preferred source format is:
 
@@ -77,9 +81,16 @@ Teacher | Term | Day | Start | End | Class | Subject | Room
 
 Each row represents one block of one teacher's day. `Start` and `End` are authoritative; the scheduler does not assume fixed school periods.
 
-The source sheet does **not** need extra columns for grade, assignment type, coverage-needed status, or cover eligibility. The scheduler infers those values at runtime from `Class`, `Subject`, and the block times.
+The web app's absence roster comes from a separate `Staff List` tab whose preferred format is simply:
 
-The setup command deliberately leaves an existing `Teacher Schedule` sheet unchanged. See [`docs/wiki/Teacher-Schedule.md`](docs/wiki/Teacher-Schedule.md).
+```text
+Teacher
+Teacher Name 1
+Teacher Name 2
+...
+```
+
+If `Staff List` does not exist or is empty, **Set up workbook** creates/seeds it from unique Teacher Schedule names. A populated Staff List is preserved.
 
 ## Install in Google Sheets
 
@@ -90,12 +101,12 @@ In summary:
 1. Open the Google Sheet that will hold the coverage system.
 2. Make sure the operational schedule is in a tab named **Teacher Schedule**.
 3. Open **Extensions → Apps Script**.
-4. Copy the `.gs`, `.html`, and manifest files from `google-apps-script/`.
+4. Copy the `.gs`, `.html`, and manifest files from `google-apps-script/`, including `web-ui-data.gs`.
 5. Save the project and reload the spreadsheet.
 6. Use **Coverage Scheduler → Set up workbook**.
 7. Use **Coverage Scheduler → Validate teacher schedule**.
-8. Populate `Coverage Staff`.
-9. Deploy the project as a Web App and use its `/exec` URL.
+8. Deploy the project as a Web App and use its `/exec` URL.
+9. Build the coverage team from **+ Coverage Staff** in the web app.
 
 The setup command stores the target spreadsheet ID privately in Apps Script Script Properties. The public repository does not need a hard-coded operational spreadsheet ID.
 
@@ -104,7 +115,8 @@ The setup command stores the target spreadsheet ID privately in Apps Script Scri
 | Sheet | Purpose |
 | --- | --- |
 | `Teacher Schedule` | Existing operational teacher schedule; source of truth |
-| `Coverage Staff` | Coverage personnel, priority tier, limits, and restrictions |
+| `Staff List` | Stable roster used by + Add Absence |
+| `Coverage Staff` | Coverage personnel and rules; normally managed from the web UI |
 | `Substitute Availability` | Date-specific availability overrides |
 | `Daily Absences` | Staff absences for a selected date |
 | `Coverage Output` | Saved coverage assignments |
@@ -117,13 +129,14 @@ The setup command stores the target spreadsheet ID privately in Apps Script Scri
 ## Typical workflow
 
 1. Open the web app and select a date.
-2. Add full-day, partial-day, or emergency absences.
-3. Confirm which coverage staff are available that day.
-4. Generate a plan.
-5. Review assigned and unfilled blocks in Timeline, Table, or By Sub view.
-6. Manually adjust blocks when necessary.
-7. Save the approved plan to `Coverage Output`.
-8. Optionally create a Google Docs handout for the people covering classes.
+2. Use **+ Add Absence** to mark full-day, partial-day, or emergency absences.
+3. Add/edit the coverage team with **+ Coverage Staff** when needed.
+4. Confirm daily coverage availability with the switches on the right.
+5. Generate a plan.
+6. Review assigned and unfilled blocks in Timeline, Table, or By Sub view.
+7. Manually adjust blocks when necessary.
+8. Save the approved plan to `Coverage Output`.
+9. Optionally create a Google Docs handout for the people covering classes.
 
 ## Scheduling approach
 
