@@ -18,9 +18,28 @@ Coverage Scheduler reads this sheet but the setup routine does not restructure i
 
 See [Teacher Schedule](Teacher-Schedule.md).
 
+## Staff List
+
+**Who maintains it:** School / scheduler administrator; setup can seed it initially
+
+**Purpose:** Stable roster shown by **+ Add Absence**.
+
+Preferred format:
+
+```text
+Teacher
+Teacher Name 1
+Teacher Name 2
+...
+```
+
+If the tab is missing or empty, setup creates/seeds it from unique `Teacher Schedule` names. A populated Staff List is preserved.
+
+See [Staff List](Staff-List.md).
+
 ## Coverage Staff
 
-**Who maintains it:** Scheduler administrator
+**Who maintains it:** Normally the web app through **+ Coverage Staff** and **Edit**
 
 **Purpose:** Defines who may provide coverage and their normal rules.
 
@@ -111,41 +130,9 @@ This is a helper sheet and is normally hidden.
 
 **Purpose:** Controls scheduler behavior.
 
-Default settings include:
+Default settings include `Whole_Day_First`, `Allow_Split_Coverage`, workload limits, lunch coverage behavior, availability override behavior, and the script time zone.
 
-### Whole_Day_First
-
-Try to keep one coverage person with an absent teacher for the entire day before splitting coverage.
-
-Default: `TRUE`
-
-### Allow_Split_Coverage
-
-Allow multiple people to cover different blocks of the same absent teacher.
-
-Default: `TRUE`
-
-### Default_Max_Blocks_Per_Day
-
-Fallback workload setting. Individual Coverage Staff values can be more specific.
-
-### Default_Max_Teachers_Per_Day
-
-Fallback limit for the number of different absent teachers one coverage person handles.
-
-### Use_Lunch_For_Coverage
-
-Controls whether lunch can be considered coverage availability when explicitly eligible.
-
-Default: `FALSE`
-
-### Availability_Override_Mode
-
-Controls use of date-specific availability records.
-
-### Script_Time_Zone
-
-Time zone used by Apps Script for dates and times.
+See [How the Scheduler Works](How-the-Scheduler-Works.md) before changing these values.
 
 ## _Preview
 
