@@ -35,12 +35,15 @@ Create these script files in Apps Script and copy the matching contents into eac
 ```text
 code.gs
 web-ui-data.gs
+handout.gs
 teacher-schedule-adapter.gs
 setup.gs
 scheduler.gs
 ```
 
-`web-ui-data.gs` is important. It connects the web interface to `Staff List` and handles adding/editing/removing coverage staff from the UI.
+`web-ui-data.gs` connects the web interface to `Staff List` and handles adding/editing/removing coverage staff from the UI.
+
+`handout.gs` creates the print-friendly Google Docs handouts used by the **Handout** button.
 
 To create a script file:
 
@@ -89,13 +92,14 @@ At this point the code is installed, but the workbook is **not configured yet**.
 
 Continue to [Set Up the Workbook](Workbook-Setup.md).
 
-## If Apps Script shows a syntax error
+## If Apps Script shows a syntax or missing-function error
 
 Check these common causes:
 
 - Code from two different files was accidentally pasted into one file.
 - An HTML file was created as a Script file, or vice versa.
 - `web-ui-data.gs` was skipped.
+- `handout.gs` was skipped.
 - Part of a file was missed while copying.
 - Smart quotes were introduced by another editor.
 
