@@ -35,7 +35,7 @@ Coverage Scheduler needs spreadsheet access because it reads and writes workbook
 
 Setup remembers this spreadsheet as the workbook used by the standalone web app.
 
-It then creates or repairs these scheduler-managed tabs:
+It creates or repairs these scheduler-managed tabs:
 
 ```text
 Coverage Staff
@@ -47,7 +47,17 @@ Config
 _Preview
 ```
 
-It does **not** replace the existing `Teacher Schedule` data.
+It also checks for:
+
+```text
+Staff List
+```
+
+If `Staff List` does not exist, setup creates it with a `Teacher` column. If the list is empty, it seeds unique names from `Teacher Schedule`.
+
+If you already have a populated `Staff List`, setup leaves your roster alone.
+
+Setup does **not** replace the existing `Teacher Schedule` data.
 
 `Lists` and `_Preview` are helper tabs and may be hidden automatically.
 
@@ -58,8 +68,9 @@ Your workbook should contain at least:
 | Tab | Created by | Purpose |
 | --- | --- | --- |
 | `Teacher Schedule` | You | Master schedule and source of truth |
-| `Coverage Staff` | Setup | People who may provide coverage |
-| `Substitute Availability` | Setup | Date-specific availability changes |
+| `Staff List` | Setup or you | Stable roster used by + Add Absence |
+| `Coverage Staff` | Setup | People the scheduler may assign; normally managed from the web UI |
+| `Substitute Availability` | Setup | Date-specific coverage-team availability changes |
 | `Daily Absences` | Setup | Absences entered through the app |
 | `Coverage Output` | Setup | Saved final coverage plans |
 | `Lists` | Setup | Internal validation lists |
@@ -81,9 +92,21 @@ A dialog reports:
 
 Warnings do not always mean the system cannot run, but read them before using the scheduler for real coverage.
 
+## Step 4 — Open the web app
+
+Once the web app is deployed, normal configuration is done there.
+
+Use:
+
+- **+ Add Absence** to mark a teacher absent;
+- **+ Coverage Staff** to build the coverage team;
+- the availability switches to turn coverage people on or off for a particular date.
+
+You should not need to manually type into `Daily Absences` or `Coverage Staff` for routine use.
+
 ## Can I run setup again?
 
-Yes. The setup process is designed to create or repair the scheduler-managed tabs without replacing the operational `Teacher Schedule`.
+Yes. The setup process is designed to create or repair the scheduler-managed tabs without replacing the operational `Teacher Schedule` or a populated `Staff List`.
 
 Re-running setup is appropriate if:
 
@@ -95,4 +118,4 @@ It is still sensible to keep normal Google Drive version history or backups for 
 
 ## Next step
 
-Go to [Coverage Staff](Coverage-Staff.md) and add the people the scheduler is allowed to assign.
+Read [Staff List](Staff-List.md), then [Coverage Staff](Coverage-Staff.md).
