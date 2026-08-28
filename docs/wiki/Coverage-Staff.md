@@ -2,111 +2,159 @@
 
 `Coverage Staff` tells Coverage Scheduler **who it is allowed to assign** when someone is absent.
 
-The scheduler does not assume that every employee can cover classes. If a person is not listed here, automatic scheduling will not use them as ordinary coverage staff.
+For normal use, **do not build this list by editing the worksheet directly**. Use the web app.
 
-## The columns
+## Add someone from the web app
 
-| Column | What it means |
-| --- | --- |
-| `Name` | Person's name. Match Teacher Schedule spelling if they also teach. |
-| `Role` | Descriptive role, such as Substitute, Teacher, Support, or Administrator. |
-| `Coverage_Tier` | Priority group. Tier 1 is preferred before Tier 2, then Tier 3. |
-| `Can_Cover_All_Day` | `Yes` if they are not constrained by Teacher Schedule free blocks. |
-| `Active_Today` | Default on/off state. Date-specific changes can override it. |
-| `Available_Days` | Weekdays they normally work, such as `M,T,W,R,F`. Blank means unrestricted. |
-| `Default_Start` | Normal earliest coverage time. |
-| `Default_End` | Normal latest coverage time. |
-| `Allowed_Grades` | Optional grade restriction. Blank means unrestricted. |
-| `Allowed_Subjects` | Optional subject restriction. Blank means unrestricted. |
-| `Allowed_Assignment_Types` | Optional restriction such as Class, Homeroom, or Duty. |
-| `Max_Blocks_Per_Day` | Optional maximum number of blocks. Blank means no explicit limit. |
-| `Max_Teachers_Per_Day` | Optional maximum number of different absent teachers this person covers. |
-| `Can_Be_Split_Across_Teachers` | Whether this person may cover pieces of multiple teachers' schedules. |
-| `Notes` | Human-readable notes. |
+In the right-hand **Coverage Staff** panel, click:
 
-## Simple full-day substitute example
+**+ Coverage Staff**
 
-A normal substitute who can cover anything all day can be entered like this:
+A modal opens with the settings for that person.
+
+The ordinary setup is intentionally short:
+
+1. Enter the person's **Name**.
+2. Choose their **Role**.
+3. Choose **Priority Tier**.
+4. Set their normal **Start** and **End** time.
+5. Pick the weekdays they normally work.
+6. Decide whether they can cover any block during those hours or only free blocks from their own Teacher Schedule.
+7. Click **Save Coverage Staff**.
+
+The app writes the row into the `Coverage Staff` worksheet for you.
+
+## The most important choices
+
+### Priority Tier
+
+A practical model is:
+
+- **Tier 1** — preferred coverage; normally dedicated substitutes.
+- **Tier 2** — regular internal backup coverage.
+- **Tier 3** — last-resort or emergency coverage.
+
+Tier is a preference, not a guarantee. Availability and schedule conflicts still win.
+
+### Can cover any block during these hours
+
+Turn this **on** for a person who is broadly free to cover during their normal work window, such as a dedicated substitute.
+
+Turn it **off** for a teacher or staff member whose own schedule matters.
+
+When it is off, Coverage Scheduler checks `Teacher Schedule` and looks for free/planning/break blocks before assigning that person.
+
+### Available by default
+
+This is the person's normal state.
+
+You do not need to edit it each morning. The switch beside each person in the right-hand panel controls whether they are available on the **selected date** and stores that as a date-specific override.
+
+## Normal availability days
+
+The modal has weekday buttons:
 
 ```text
-Name: Jordan Lee
-Role: Substitute
-Coverage_Tier: 1
-Can_Cover_All_Day: Yes
-Active_Today: Yes
-Available_Days: M,T,W,R,F
-Default_Start: 8:00 AM
-Default_End: 3:00 PM
-Allowed_Grades: [blank]
-Allowed_Subjects: [blank]
-Allowed_Assignment_Types: [blank]
-Max_Blocks_Per_Day: [blank]
-Max_Teachers_Per_Day: [blank]
-Can_Be_Split_Across_Teachers: Yes
+M  T  W  R  F
 ```
 
-Blank restrictions mean "do not restrict this field."
+`R` means Thursday.
 
-## Teacher who may cover during free blocks
+Select the days that person normally works.
 
-If an existing teacher can provide internal coverage during planning or break time, list them in `Coverage Staff` and use:
+## Optional limits & restrictions
 
-```text
-Can_Cover_All_Day: No
-```
+Most users can leave this section closed.
 
-Their `Name` should exactly match their name in `Teacher Schedule`.
+Open **Optional limits & restrictions** only when a person needs special rules.
 
-The scheduler then checks their real schedule before assigning them.
+You can set:
+
+- allowed grades;
+- allowed subjects;
+- allowed assignment types such as Class, Homeroom, or Duty;
+- maximum blocks per day;
+- maximum number of different absent teachers per day;
+- whether the person may cover pieces of more than one teacher's schedule;
+- notes.
+
+Blank grade/subject limits mean **no restriction**.
+
+## Edit someone
+
+Find the person in the right-hand Coverage Staff panel and click **Edit**.
+
+The same modal opens with their current settings.
+
+Make the change and click **Save Coverage Staff**.
+
+## Remove someone from the coverage team
+
+Open that person's **Edit** modal and click:
+
+**Remove from Team**
+
+A confirmation modal appears before anything is removed.
+
+Removing someone from the team does not erase old saved coverage output.
+
+## Daily availability
+
+The switch beside each coverage person is specifically for the date shown at the top of the app.
 
 Example:
 
-```text
-Name: Rivera, Alex
-Role: Teacher
-Coverage_Tier: 2
-Can_Cover_All_Day: No
-Active_Today: Yes
-Available_Days: M,T,W,R,F
-```
+A substitute normally works Monday through Friday but calls out on September 14.
 
-You do not need to manually type every free block into Coverage Staff. Those blocks come from Teacher Schedule.
+You do **not** edit their permanent settings. Select September 14 and turn their switch off.
 
-## What are tiers?
+That date-specific change is stored in `Substitute Availability`.
 
-Tiers are priorities, not guarantees.
+## What is happening in the worksheet?
 
-A simple model is:
+The app ultimately stores the following fields in `Coverage Staff`:
 
-- **Tier 1** — dedicated substitutes; use first.
-- **Tier 2** — internal staff who commonly provide coverage.
-- **Tier 3** — last-resort or emergency coverage.
+| Column | Meaning |
+| --- | --- |
+| `Name` | Person's name |
+| `Role` | Substitute, teacher, aide, etc. |
+| `Coverage_Tier` | Priority 1, 2, or 3 |
+| `Can_Cover_All_Day` | Whether their own Teacher Schedule limits them |
+| `Active_Today` | Normal/default availability |
+| `Available_Days` | Normal weekdays |
+| `Default_Start` | Earliest normal coverage time |
+| `Default_End` | Latest normal coverage time |
+| `Allowed_Grades` | Optional grade restriction |
+| `Allowed_Subjects` | Optional subject restriction |
+| `Allowed_Assignment_Types` | Optional Class/Homeroom/Duty restriction |
+| `Max_Blocks_Per_Day` | Optional workload limit |
+| `Max_Teachers_Per_Day` | Optional distinct-teacher limit |
+| `Can_Be_Split_Across_Teachers` | Whether one person can cover multiple absent teachers |
+| `Notes` | Optional notes |
 
-The scheduler still checks availability, restrictions, time conflicts, and limits. A Tier 1 person who is unavailable cannot be selected just because they are Tier 1.
-
-## Date-specific availability
-
-You usually do not need to edit the base `Active_Today` value every morning.
-
-The web interface can turn a coverage person on or off for the selected date. That information is stored in `Substitute Availability` as a date-specific override.
-
-For example, a substitute may normally work Monday through Friday but be unavailable on September 14. Turn them off for that date in the app rather than changing their permanent weekday settings.
+You normally do not need to type into these cells yourself.
 
 ## Recommended first setup
 
-Start simple.
+Start with only the information the scheduler truly needs.
 
-For each dedicated substitute, enter:
+For a dedicated substitute:
 
 - Name
-- Role
-- Tier
-- All-day Yes/No
-- Active Today
-- Available Days
-- Start
-- End
+- Role = Substitute
+- Tier = 1
+- Can cover any block = on
+- Available by default = on
+- Days
+- Start / End
 
-Leave advanced restrictions blank until you have a reason to use them.
+For a teacher who can cover during free blocks:
 
-Over-configuring every person on day one makes troubleshooting harder.
+- Name matching their Teacher Schedule name
+- Role = Teacher (Free Blocks)
+- Tier = 2 or 3
+- Can cover any block = **off**
+- Available by default = on
+- Days
+
+Only add advanced restrictions when there is a real reason for them.
