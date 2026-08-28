@@ -2,7 +2,24 @@
 
 Coverage Scheduler is a Google Sheets + Google Apps Script tool for planning staff coverage when teachers or other scheduled staff are absent.
 
-The working application runs as a **sidebar inside a Google Sheet**. This repository also contains separate browser-only UI prototypes; those prototypes use mock data and are not the production application.
+The primary interface is a **full-page Google Apps Script web app**. An optional spreadsheet sidebar is also included. The application's live data stays in Google Sheets; the public GitHub repository contains the software and documentation.
+
+## New user? Start here
+
+The detailed beginner guide is written for someone with **zero previous Apps Script experience**:
+
+**[Coverage Scheduler Beginner Guide](docs/wiki/Home.md)**
+
+Recommended order:
+
+1. [Getting Started](docs/wiki/Getting-Started.md)
+2. [Install Google Apps Script](docs/wiki/Installing-Google-Apps-Script.md)
+3. [Set Up the Workbook](docs/wiki/Workbook-Setup.md)
+4. [Teacher Schedule](docs/wiki/Teacher-Schedule.md)
+5. [Coverage Staff](docs/wiki/Coverage-Staff.md)
+6. [Deploy the Web App](docs/wiki/Deploying-the-Web-App.md)
+7. [Daily Workflow](docs/wiki/Daily-Workflow.md)
+8. [Troubleshooting](docs/wiki/Troubleshooting.md)
 
 ## What it does
 
@@ -21,16 +38,22 @@ The working application runs as a **sidebar inside a Google Sheet**. This reposi
 
 ```text
 apps-script/
-  code.gs                       Spreadsheet menu, sidebar bootstrap, and entry points
-  teacher-schedule-adapter.gs  Preserves and validates the existing Teacher Schedule source
-  setup.gs                      Managed workbook schemas, validation, and configuration
-  scheduler.gs                  Scheduling engine, data normalization, output, and handouts
+  code.gs                       Spreadsheet/sidebar entry points
+  teacher-schedule-adapter.gs  Preserves and validates Teacher Schedule
+  setup.gs                      Workbook schemas, validation, and configuration
+  scheduler.gs                  Scheduling engine, normalization, output, and handouts
   sidebar.html                  Apps Script sidebar markup
   sidebarcss.html               Sidebar styles
   sidebarjs.html                Sidebar client-side behavior
 
 google-apps-script/
-  ...                           Copy-ready Apps Script package, including appsscript.json
+  code.gs                       Full web-app entry point and workbook binding
+  index.html                    Full-page Coverage Scheduler UI
+  teacher-schedule-adapter.gs  Teacher Schedule adapter/validator
+  setup.gs                      Workbook setup
+  scheduler.gs                  Scheduling engine
+  sidebar*.html                 Optional Sheet sidebar
+  appsscript.json               Apps Script manifest
 
 prototype/
   coverage-scheduler.html             Browser-only interface prototype
@@ -38,14 +61,15 @@ prototype/
   tweaks-panel.jsx                    Prototype editing/tweaks helper
 
 docs/
+  wiki/                  Beginner/operator documentation
   ARCHITECTURE.md        Data flow and scheduler design
-  TEACHER-SCHEDULE.md   Teacher Schedule source format and inference rules
+  TEACHER-SCHEDULE.md    Teacher Schedule source format and inference rules
   REVIEW.md              Repository/code review findings and technical debt
 ```
 
 ## Teacher Schedule source
 
-Coverage Scheduler now uses the existing `Teacher Schedule` tab directly. The preferred source format is:
+Coverage Scheduler uses the existing `Teacher Schedule` tab directly. The preferred source format is:
 
 ```text
 Teacher | Term | Day | Start | End | Class | Subject | Room
@@ -55,40 +79,31 @@ Each row represents one block of one teacher's day. `Start` and `End` are author
 
 The source sheet does **not** need extra columns for grade, assignment type, coverage-needed status, or cover eligibility. The scheduler infers those values at runtime from `Class`, `Subject`, and the block times.
 
-The setup command deliberately leaves an existing `Teacher Schedule` sheet unchanged. See [`docs/TEACHER-SCHEDULE.md`](docs/TEACHER-SCHEDULE.md).
+The setup command deliberately leaves an existing `Teacher Schedule` sheet unchanged. See [`docs/wiki/Teacher-Schedule.md`](docs/wiki/Teacher-Schedule.md).
 
 ## Install in Google Sheets
 
-This is designed to be a **spreadsheet-bound Apps Script project**. It does not require a separate web server.
+For the most direct installation, use the files in `google-apps-script/` and follow the [beginner installation guide](docs/wiki/Installing-Google-Apps-Script.md).
 
-For the most direct installation, use the files in `google-apps-script/`.
+In summary:
 
-1. Create or open the Google Sheet that will hold the coverage data.
+1. Open the Google Sheet that will hold the coverage system.
 2. Make sure the operational schedule is in a tab named **Teacher Schedule**.
-3. In Google Sheets, open **Extensions → Apps Script**.
-4. Add the four script files:
-   - `code.gs`
-   - `teacher-schedule-adapter.gs`
-   - `setup.gs`
-   - `scheduler.gs`
-5. Add the three HTML files:
-   - `sidebar.html`
-   - `sidebarcss.html`
-   - `sidebarjs.html`
-6. If using the `google-apps-script/` package, copy its `appsscript.json` manifest as well.
-7. Save the Apps Script project and reload the spreadsheet.
-8. Use **Coverage Scheduler → Validate teacher schedule**.
-9. Use **Coverage Scheduler → Set up workbook**.
-10. Populate `Coverage Staff` and any other scheduler-managed configuration you need.
-11. Use **Coverage Scheduler → Open coverage panel** to work with the scheduler.
+3. Open **Extensions → Apps Script**.
+4. Copy the `.gs`, `.html`, and manifest files from `google-apps-script/`.
+5. Save the project and reload the spreadsheet.
+6. Use **Coverage Scheduler → Set up workbook**.
+7. Use **Coverage Scheduler → Validate teacher schedule**.
+8. Populate `Coverage Staff`.
+9. Deploy the project as a Web App and use its `/exec` URL.
 
-Google will request authorization when the script first uses protected services. The project works with the active spreadsheet and uses Google Docs when generating handouts.
+The setup command stores the target spreadsheet ID privately in Apps Script Script Properties. The public repository does not need a hard-coded operational spreadsheet ID.
 
 ## Workbook model
 
 | Sheet | Purpose |
 | --- | --- |
-| `Teacher Schedule` | Existing operational teacher schedule; treated as the source of truth |
+| `Teacher Schedule` | Existing operational teacher schedule; source of truth |
 | `Coverage Staff` | Coverage personnel, priority tier, limits, and restrictions |
 | `Substitute Availability` | Date-specific availability overrides |
 | `Daily Absences` | Staff absences for a selected date |
@@ -101,17 +116,18 @@ Google will request authorization when the script first uses protected services.
 
 ## Typical workflow
 
-1. Select a date in the sidebar.
-2. Mark the staff members who are absent and specify full-day or partial-day details.
+1. Open the web app and select a date.
+2. Add full-day, partial-day, or emergency absences.
 3. Confirm which coverage staff are available that day.
-4. Generate a preview.
-5. Review assigned and unfilled blocks.
-6. Save the approved plan to `Coverage Output`.
-7. Optionally create a Google Docs handout for the people covering classes.
+4. Generate a plan.
+5. Review assigned and unfilled blocks in Timeline, Table, or By Sub view.
+6. Manually adjust blocks when necessary.
+7. Save the approved plan to `Coverage Output`.
+8. Optionally create a Google Docs handout for the people covering classes.
 
 ## Scheduling approach
 
-The scheduler is heuristic rather than a mathematical optimizer. In plain terms, it makes a series of practical choices rather than trying every possible schedule combination.
+The scheduler is heuristic rather than a mathematical optimizer. It makes a series of practical choices rather than trying every possible schedule combination.
 
 It generally:
 
@@ -122,15 +138,15 @@ It generally:
 5. Rejects automatic candidates who are unavailable, already assigned at the same time, outside configured restrictions, or over their limits.
 6. Scores remaining candidates to favor higher-priority tiers, continuity with the same teacher, and lower existing workload.
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for more detail and [`docs/REVIEW.md`](docs/REVIEW.md) for review findings that were deliberately not changed in the original repository-cleanup pass.
+See [`docs/wiki/How-the-Scheduler-Works.md`](docs/wiki/How-the-Scheduler-Works.md) for a plain-language explanation and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for implementation detail.
 
 ## Privacy and repository safety
 
-Do **not** commit live school data to this repository. Staff schedules, absence records, substitute availability, student information, spreadsheet exports, and local Apps Script identifiers should remain outside version control.
+Do **not** commit live school data to this repository. Staff schedules, absence records, substitute availability, student information, spreadsheet exports, and local credentials should remain outside version control.
 
 The included `.gitignore` blocks common spreadsheet/data exports and local clasp configuration by default. If sample data is added later, it should be deliberately anonymized.
 
-The original upload included a teacher-scheduler workbook; it is intentionally excluded from the cleaned project tree. If that workbook contains real operational data, removing it in a later commit is not sufficient to remove it from Git history. See [`SECURITY.md`](SECURITY.md).
+See [`SECURITY.md`](SECURITY.md).
 
 ## Prototypes
 
@@ -142,7 +158,8 @@ Files in `prototype/` are interface experiments. They intentionally contain mock
 - There is no CI workflow yet.
 - The scheduling algorithm is heuristic and can produce a valid but non-optimal assignment when many constraints compete.
 - `Term` is currently treated as informational when the schedule uses `All Year`; seasonal/non-`All Year` schedules need explicit date-to-term mapping.
-- The Apps Script project is currently installed manually rather than through a packaged deployment process.
+- Numeric grade inference is strongest for class labels containing a grade number; PreK/Kindergarten/Beginner labels need care when using strict grade restrictions.
+- The Apps Script project is installed manually rather than through an automated package installer.
 
 ## License
 
