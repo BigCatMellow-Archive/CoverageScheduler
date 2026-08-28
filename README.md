@@ -6,7 +6,8 @@ The working application runs as a **sidebar inside a Google Sheet**. This reposi
 
 ## What it does
 
-- Creates and maintains the workbook tabs required by the scheduler.
+- Reads the school's existing teacher schedule directly from Google Sheets.
+- Creates and maintains the scheduler-managed workbook tabs.
 - Records full-day, partial-day, and emergency absences.
 - Tracks substitute/coverage staff availability by date and weekday.
 - Supports coverage tiers, availability windows, grade/subject restrictions, and daily assignment limits.
@@ -20,12 +21,16 @@ The working application runs as a **sidebar inside a Google Sheet**. This reposi
 
 ```text
 apps-script/
-  code.gs              Spreadsheet menu, sidebar bootstrap, and entry points
-  setup.gs             Workbook schemas, setup, validation, and configuration
-  scheduler.gs         Scheduling engine, data normalization, output, and handouts
-  sidebar.html         Apps Script sidebar markup
-  sidebarcss.html      Sidebar styles
-  sidebarjs.html       Sidebar client-side behavior
+  code.gs                       Spreadsheet menu, sidebar bootstrap, and entry points
+  teacher-schedule-adapter.gs  Preserves and validates the existing Teacher Schedule source
+  setup.gs                      Managed workbook schemas, validation, and configuration
+  scheduler.gs                  Scheduling engine, data normalization, output, and handouts
+  sidebar.html                  Apps Script sidebar markup
+  sidebarcss.html               Sidebar styles
+  sidebarjs.html                Sidebar client-side behavior
+
+google-apps-script/
+  ...                           Copy-ready Apps Script package, including appsscript.json
 
 prototype/
   coverage-scheduler.html             Browser-only interface prototype
@@ -33,38 +38,57 @@ prototype/
   tweaks-panel.jsx                    Prototype editing/tweaks helper
 
 docs/
-  ARCHITECTURE.md       Data flow and scheduler design
-  REVIEW.md             Repository/code review findings and technical debt
+  ARCHITECTURE.md        Data flow and scheduler design
+  TEACHER-SCHEDULE.md   Teacher Schedule source format and inference rules
+  REVIEW.md              Repository/code review findings and technical debt
 ```
+
+## Teacher Schedule source
+
+Coverage Scheduler now uses the existing `Teacher Schedule` tab directly. The preferred source format is:
+
+```text
+Teacher | Term | Day | Start | End | Class | Subject | Room
+```
+
+Each row represents one block of one teacher's day. `Start` and `End` are authoritative; the scheduler does not assume fixed school periods.
+
+The source sheet does **not** need extra columns for grade, assignment type, coverage-needed status, or cover eligibility. The scheduler infers those values at runtime from `Class`, `Subject`, and the block times.
+
+The setup command deliberately leaves an existing `Teacher Schedule` sheet unchanged. See [`docs/TEACHER-SCHEDULE.md`](docs/TEACHER-SCHEDULE.md).
 
 ## Install in Google Sheets
 
 This is designed to be a **spreadsheet-bound Apps Script project**. It does not require a separate web server.
 
+For the most direct installation, use the files in `google-apps-script/`.
+
 1. Create or open the Google Sheet that will hold the coverage data.
-2. In Google Sheets, open **Extensions → Apps Script**.
-3. Add the three script files from `apps-script/`:
+2. Make sure the operational schedule is in a tab named **Teacher Schedule**.
+3. In Google Sheets, open **Extensions → Apps Script**.
+4. Add the four script files:
    - `code.gs`
+   - `teacher-schedule-adapter.gs`
    - `setup.gs`
    - `scheduler.gs`
-4. Add the three HTML files from `apps-script/`:
+5. Add the three HTML files:
    - `sidebar.html`
    - `sidebarcss.html`
    - `sidebarjs.html`
-5. Save the Apps Script project and reload the spreadsheet.
-6. Use **Coverage Scheduler → Set up workbook** from the spreadsheet menu.
-7. Populate `Teacher Schedule` and `Coverage Staff` with your local schedule data.
-8. Use **Coverage Scheduler → Open coverage panel** to work with the scheduler.
+6. If using the `google-apps-script/` package, copy its `appsscript.json` manifest as well.
+7. Save the Apps Script project and reload the spreadsheet.
+8. Use **Coverage Scheduler → Validate teacher schedule**.
+9. Use **Coverage Scheduler → Set up workbook**.
+10. Populate `Coverage Staff` and any other scheduler-managed configuration you need.
+11. Use **Coverage Scheduler → Open coverage panel** to work with the scheduler.
 
 Google will request authorization when the script first uses protected services. The project works with the active spreadsheet and uses Google Docs when generating handouts.
 
 ## Workbook model
 
-The setup script creates these sheets:
-
 | Sheet | Purpose |
 | --- | --- |
-| `Teacher Schedule` | Staff schedule blocks and whether each block needs/permits coverage |
+| `Teacher Schedule` | Existing operational teacher schedule; treated as the source of truth |
 | `Coverage Staff` | Coverage personnel, priority tier, limits, and restrictions |
 | `Substitute Availability` | Date-specific availability overrides |
 | `Daily Absences` | Staff absences for a selected date |
@@ -98,7 +122,7 @@ It generally:
 5. Rejects automatic candidates who are unavailable, already assigned at the same time, outside configured restrictions, or over their limits.
 6. Scores remaining candidates to favor higher-priority tiers, continuity with the same teacher, and lower existing workload.
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for more detail and [`docs/REVIEW.md`](docs/REVIEW.md) for review findings that were deliberately not changed in this repository-cleanup pass.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for more detail and [`docs/REVIEW.md`](docs/REVIEW.md) for review findings that were deliberately not changed in the original repository-cleanup pass.
 
 ## Privacy and repository safety
 
@@ -117,6 +141,7 @@ Files in `prototype/` are interface experiments. They intentionally contain mock
 - There is no automated test suite yet.
 - There is no CI workflow yet.
 - The scheduling algorithm is heuristic and can produce a valid but non-optimal assignment when many constraints compete.
+- `Term` is currently treated as informational when the schedule uses `All Year`; seasonal/non-`All Year` schedules need explicit date-to-term mapping.
 - The Apps Script project is currently installed manually rather than through a packaged deployment process.
 
 ## License
