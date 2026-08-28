@@ -1,4 +1,5 @@
 const APP_TITLE = 'Coverage Scheduler';
+const COVERAGE_SPREADSHEET_ID = '1tLR_QPQyHD-w_FlAjb1HYtjxY6NLVy4E-WLmIln8AK8';
 
 function onOpen() {
   SpreadsheetApp.getUi()
@@ -15,6 +16,57 @@ function onOpen() {
 
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+function doGet() {
+  activateCoverageSpreadsheetForWeb_();
+  return HtmlService.createTemplateFromFile('index')
+    .evaluate()
+    .setTitle(APP_TITLE)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function activateCoverageSpreadsheetForWeb_() {
+  const active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active && active.getId() === COVERAGE_SPREADSHEET_ID) return active;
+  const ss = SpreadsheetApp.openById(COVERAGE_SPREADSHEET_ID);
+  SpreadsheetApp.setActiveSpreadsheet(ss);
+  return ss;
+}
+
+function webGetBootstrap(payload) {
+  activateCoverageSpreadsheetForWeb_();
+  return getSidebarBootstrap(payload || {});
+}
+
+function webSaveAbsences(payload) {
+  activateCoverageSpreadsheetForWeb_();
+  return replaceDailyAbsences(payload || {});
+}
+
+function webGenerateCoverage(payload) {
+  activateCoverageSpreadsheetForWeb_();
+  return generateCoveragePreview(payload || {});
+}
+
+function webToggleCoverageStaff(payload) {
+  activateCoverageSpreadsheetForWeb_();
+  return toggleCoverageStaffActive(payload || {});
+}
+
+function webSaveCoverage(rows) {
+  activateCoverageSpreadsheetForWeb_();
+  return saveCoveragePlan({ rows: rows || [] });
+}
+
+function webCreateHandout() {
+  activateCoverageSpreadsheetForWeb_();
+  return createCoverageHandoutDocFromCoverageOutput();
+}
+
+function webValidateTeacherSchedule() {
+  activateCoverageSpreadsheetForWeb_();
+  return validateTeacherScheduleSource_();
 }
 
 function openCoveragePanel() {
