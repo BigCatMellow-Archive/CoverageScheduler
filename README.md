@@ -172,13 +172,20 @@ That means:
 - Steve is preferred for Mike's overlapping 1st-grade coverage before an unrelated substitute when the times fit.
 - A cancelled 2nd-grade class can be used directly for coverage.
 - A planning period can be used when the existing schedule marks it cover-eligible.
-- A break can be moved only when the scheduler can reserve enough time inside another cancelled trip-grade class as Steve's replacement break. That replacement break is then blocked from further coverage assignments.
-- Every field-trip assignment records why the teacher is available, such as **2nd-grade class cancelled by trip** or **break moved from 10:00–11:00 to 11:00–12:00 because the 2nd-grade class is cancelled**.
+- Availability can be assembled across adjacent blocks. For example, a cancelled 2nd-grade class from 12:00–1:15 plus a 1:15–1:30 break can cover one 12:45–1:30 need.
+- If any of that coverage consumes break time, the scheduler must reserve the same amount of replacement break time inside another cancelled trip-grade class. That replacement time is then blocked from further coverage assignments.
+- Every field-trip assignment records why the teacher is available, including mixed cases such as **2C class cancelled through 1:15; break time 1:15–1:30 moved to 1:30–1:45 inside cancelled 2D**.
 - Steve's other classes that are still happening keep him unavailable.
 - If the field-trip pool cannot cover a block, the scheduler falls back to the normal Coverage Staff pool.
 - The finished result appears in the normal coverage plan with a specific person assigned to each remaining class, or **Unfilled** if no eligible person exists.
 
 Field trips have stable event IDs and can be edited as one event from the **Calendar** or directly from the field-trip card in the daily coverage plan. The plan card shows the staff on the trip by name, teachers released to help because their trip-grade classes were cancelled, and the coverage assignment for each remaining class. Clicking a coverage line opens the normal manual reassignment editor. Changing the staff, grade, dates, or times changes the scheduling consequences the next time the plan is generated.
+
+### Schedule term and trip-boundary rules
+
+The native Teacher Schedule may contain both `S1` and `S2` rows for the same teacher. Coverage Scheduler filters to the semester that applies to the selected date before it decides whether someone is free. By default July–December uses **S1** and January–June uses **S2**. A Config value named `Schedule_Term_Override`, `Active_Term`, or `Schedule_Term` can override that inference when needed.
+
+Partial-day coverage is clipped to the actual absence or trip window. If a trip begins at 9:00 AM during an 8:30–9:15 class, the coverage need is **9:00–9:15**, not the full 8:30–9:15 block.
 
 ### Overnight and multi-day field trips
 
