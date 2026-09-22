@@ -150,17 +150,25 @@ function normalizeGradeKey_(value) {
   return raw;
 }
 
-function splitFieldTripList_(value) {
+function splitFieldTripStaffList_(value) {
   if (Array.isArray(value)) return value.map(v => String(v || '').trim()).filter(Boolean);
+
+  // Staff names are commonly stored as "Last, First". Commas are part of
+  // the person's name, not a list separator. Persisted field-trip staff are
+  // separated with pipes, and semicolons are accepted as a manual fallback.
   return String(value || '')
-    .split(/\s*[|,;]\s*/)
+    .split(/\s*[|;]\s*/)
     .map(v => v.trim())
     .filter(Boolean);
 }
 
 function normalizeFieldTripGrades_(value) {
   const seen = {};
-  return splitFieldTripList_(value)
+  const values = Array.isArray(value)
+    ? value
+    : String(value || '').split(/\s*[|,;]\s*/);
+
+  return values
     .map(normalizeGradeKey_)
     .filter(grade => {
       if (!grade || seen[grade]) return false;
@@ -181,7 +189,7 @@ function normalizeFieldTripRow_(row) {
     start: timeToDisplay_(row.Start),
     end: timeToDisplay_(row.End),
     grades: normalizeFieldTripGrades_(row.Grades),
-    staffNames: splitFieldTripList_(row.Staff),
+    staffNames: splitFieldTripStaffList_(row.Staff),
     notes: String(row.Notes || '').trim()
   };
 }
@@ -254,7 +262,7 @@ function saveFieldTrip_(payload) {
   const start = timeToDisplay_(payload.start);
   const end = timeToDisplay_(payload.end);
   const grades = normalizeFieldTripGrades_(payload.grades);
-  const staffNames = splitFieldTripList_(payload.staffNames || payload.staff);
+  const staffNames = splitFieldTripStaffList_(payload.staffNames || payload.staff);
   const notes = String(payload.notes || '').trim();
 
   if (!startDate) throw new Error('Choose a valid field trip start date.');
@@ -2132,10 +2140,27 @@ function readSheetObjects_(sheetName) {
 function writeObjectsToSheet_(sheetName, headers, rows, append) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) throw new Error('Missing sheet: ' + sheetName);
+
+  // Existing managed sheets can gain new columns over time. setup.gs appends
+  // a missing header rather than reordering old columns, so always write using
+  // the sheet's actual header order. This keeps migrated workbooks aligned.
+  const lastCol = Math.max(sheet.getLastColumn(), 1);
+  const actualHeaders = sheet.getRange(1, 1, 1, lastCol)
+    .getValues()[0]
+    .map(value => String(value || '').trim());
+
+  while (actualHeaders.length && !actualHeaders[actualHeaders.length - 1]) {
+    actualHeaders.pop();
+  }
+
+  const writeHeaders = actualHeaders.length ? actualHeaders : headers;
   const startRow = append ? sheet.getLastRow() + 1 : 2;
-  const values = rows.map(row => headers.map(header => row[header] != null ? row[header] : ''));
+  const values = rows.map(row =>
+    writeHeaders.map(header => row[header] != null ? row[header] : '')
+  );
+
   if (!values.length) return;
-  sheet.getRange(startRow, 1, values.length, headers.length).setValues(values);
+  sheet.getRange(startRow, 1, values.length, writeHeaders.length).setValues(values);
 }
 
 function getConfigMap_() {
