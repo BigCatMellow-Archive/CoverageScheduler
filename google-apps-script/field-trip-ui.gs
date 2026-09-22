@@ -313,7 +313,7 @@ function getFieldTripUi_() {
         '<div class="ft-plan-hd"><div><div class="ft-plan-title">'+esc(trip.name||'Field Trip')+' <span class="ft-badge">Field Trip</span></div><div class="ft-plan-sub">Grades '+esc(grades||'—')+' · '+esc(tripWindowText(trip))+'</div></div><div class="sp-r"></div><button class="ft-plan-edit" data-plan-edit-fieldtrip="'+esc(trip.eventId)+'">View / Edit Trip</button></div>'+
         '<div class="ft-plan-section"><div class="ft-plan-label">Staff on trip</div><div class="ft-plan-value">'+esc(onTrip.length?onTrip.join(', '):'No staff selected')+'</div></div>'+
         '<div class="ft-plan-section"><div class="ft-plan-label">Coverage plan for classes still at school · assignment / why available</div>'+assignments+'</div>'+
-        '<div class="ft-plan-section"><div class="ft-plan-label">Field-trip coverage pool</div><div class="ft-plan-value">'+esc(released.length?released.join(', '):'No released staff identified; normal Coverage Staff will be used as needed.')+'</div></div>'+
+        '<div class="ft-plan-section"><div class="ft-plan-label">Field-trip coverage pool · teachers who teach the trip grade</div><div class="ft-plan-value">'+esc(released.length?released.join(', '):'No trip-grade teacher is available for this event/date; normal Coverage Staff will be used as needed.')+'</div></div>'+
       '</div>';
     }).join('')+'</div>';
   }
