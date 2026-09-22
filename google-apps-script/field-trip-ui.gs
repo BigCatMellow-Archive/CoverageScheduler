@@ -38,13 +38,14 @@ function getFieldTripUi_() {
 </style>
 <script>
 (function(){
-  var originalGroupButton=document.getElementById('addGroupAbsenceBtn');
-  var fieldTripButton=null;
-  if(originalGroupButton&&originalGroupButton.parentNode){
-    fieldTripButton=originalGroupButton.cloneNode(true);
-    fieldTripButton.id='addFieldTripBtn';
-    fieldTripButton.textContent='+ Field Trip';
-    originalGroupButton.parentNode.replaceChild(fieldTripButton,originalGroupButton);
+  var addAbsenceButton=document.getElementById('addAbsenceBtn');
+  var fieldTripButton=document.createElement('button');
+  fieldTripButton.id='addFieldTripBtn';
+  fieldTripButton.type='button';
+  fieldTripButton.className='add-btn';
+  fieldTripButton.textContent='+ Field Trip';
+  if(addAbsenceButton&&addAbsenceButton.parentNode){
+    addAbsenceButton.parentNode.appendChild(fieldTripButton);
   }
 
   var topActions=document.querySelector('.top-actions');
@@ -64,7 +65,7 @@ function getFieldTripUi_() {
         '<div class="m-hd"><div><h2 id="fieldTripModalTitle">Add Field Trip</h2><div class="m-sub">Choose the students and staff who will be away. The scheduler will cancel those grade-level classes and reuse released teachers for coverage.</div></div><button class="m-x" data-ft-close="fieldTripModal">×</button></div>'+
         '<div class="m-body">'+
           '<div class="fg"><label class="fl">Trip Name</label><input id="ftName" class="fi" placeholder="2nd Grade Field Trip"></div>'+
-          '<div class="f-row"><div class="fg"><label class="fl">Date</label><input id="ftDate" type="date" class="fi"></div><div class="fg"><label class="fl">Start</label><input id="ftStart" type="time" class="fi" value="09:00"></div><div class="fg"><label class="fl">End</label><input id="ftEnd" type="time" class="fi" value="14:00"></div></div>'+
+          '<div class="f-row-3"><div class="fg"><label class="fl">Date</label><input id="ftDate" type="date" class="fi"></div><div class="fg"><label class="fl">Start</label><input id="ftStart" type="time" class="fi" value="09:00"></div><div class="fg"><label class="fl">End</label><input id="ftEnd" type="time" class="fi" value="14:00"></div></div>'+
           '<div class="fg"><label class="fl">Students on Trip</label><div id="ftGrades" class="ft-grade-grid"></div><div class="hint">Classes for these grades are treated as cancelled during the trip window.</div></div>'+
           '<div class="fg ft-staff-box"><label class="fl">Staff on Trip</label><input id="ftStaffSearch" class="fi" placeholder="Search staff…"><div id="ftStaffList" class="ft-staff-list"></div><div id="ftStaffHint" class="hint" style="margin-top:7px"></div></div>'+
           '<div class="fg"><label class="fl">Notes <span style="font-weight:500;text-transform:none">(optional)</span></label><textarea id="ftNotes" class="fta" placeholder="Destination, grade-level details, or anything the office should know"></textarea></div>'+
