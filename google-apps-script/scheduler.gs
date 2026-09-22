@@ -778,44 +778,202 @@ function buildFieldTripCoverageCandidates_(fieldTrips, teacherSchedule, day, act
   return Object.keys(byName).map(name => byName[name]);
 }
 
-function candidateFieldTripAvailability_(candidate, block, availabilityRows) {
+function assignmentTypeIsBreak_(row) {
+  return String(row && row.assignmentType || '').trim().toLowerCase() === 'break';
+}
+
+function assignmentTypeIsPlanning_(row) {
+  return String(row && row.assignmentType || '').trim().toLowerCase() === 'planning';
+}
+
+function candidateBreakReservations_(candidateName, state) {
+  if (!state || !state.breakReservationsByCandidate) return [];
+  return state.breakReservationsByCandidate[candidateName] || [];
+}
+
+function candidateHasReservedBreakConflict_(candidateName, block, state) {
+  return candidateBreakReservations_(candidateName, state).some(reservation =>
+    timesOverlap_(reservation.startMinutes, reservation.endMinutes, block.startMinutes, block.endMinutes)
+  );
+}
+
+function intervalConflictsWithCandidateState_(candidateName, startMinutes, endMinutes, state) {
+  const assignments = state && state.assignmentsByCandidate && state.assignmentsByCandidate[candidateName] || [];
+  if (assignments.some(existing =>
+    timesOverlap_(existing.startMinutes, existing.endMinutes, startMinutes, endMinutes)
+  )) return true;
+
+  return candidateBreakReservations_(candidateName, state).some(reservation =>
+    timesOverlap_(reservation.startMinutes, reservation.endMinutes, startMinutes, endMinutes)
+  );
+}
+
+function findOpenBreakSlotInReleasedRow_(candidateName, releasedRow, durationMinutes, state) {
+  if (!releasedRow || durationMinutes <= 0) return null;
+  if ((releasedRow.endMinutes - releasedRow.startMinutes) < durationMinutes) return null;
+
+  const busy = [];
+  const assignments = state && state.assignmentsByCandidate && state.assignmentsByCandidate[candidateName] || [];
+  assignments.forEach(item => busy.push({
+    startMinutes: item.startMinutes,
+    endMinutes: item.endMinutes
+  }));
+  candidateBreakReservations_(candidateName, state).forEach(item => busy.push({
+    startMinutes: item.startMinutes,
+    endMinutes: item.endMinutes
+  }));
+
+  const absence = state && state.absencesByCandidate
+    ? state.absencesByCandidate[candidateName]
+    : null;
+  if (absence) {
+    if (absence.allDay) return null;
+    if (absence.startMinutes == null || absence.endMinutes == null) return null;
+    busy.push({
+      startMinutes: absence.startMinutes,
+      endMinutes: absence.endMinutes
+    });
+  }
+
+  busy.sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes);
+
+  let cursor = releasedRow.startMinutes;
+  for (const interval of busy) {
+    if (interval.endMinutes <= cursor) continue;
+    if (interval.startMinutes >= releasedRow.endMinutes) break;
+    if (interval.startMinutes - cursor >= durationMinutes) {
+      return {
+        startMinutes: cursor,
+        endMinutes: cursor + durationMinutes
+      };
+    }
+    cursor = Math.max(cursor, interval.endMinutes);
+    if (cursor + durationMinutes > releasedRow.endMinutes) return null;
+  }
+
+  if (cursor + durationMinutes <= releasedRow.endMinutes) {
+    return {
+      startMinutes: cursor,
+      endMinutes: cursor + durationMinutes
+    };
+  }
+  return null;
+}
+
+function findFieldTripBreakMove_(candidate, block, event, availabilityRows, state) {
+  const currentBreak = availabilityRows.find(row =>
+    assignmentTypeIsBreak_(row) &&
+    row.startMinutes <= block.startMinutes &&
+    row.endMinutes >= block.endMinutes
+  );
+  if (!currentBreak) return null;
+
+  const breakDuration = currentBreak.endMinutes - currentBreak.startMinutes;
+  if (breakDuration <= 0) return null;
+
+  const releasedRows = availabilityRows
+    .filter(row =>
+      isInstructionalGradeBlock_(row) &&
+      (event.grades || []).some(grade => normalizeGradeKey_(grade) === normalizeGradeKey_(row.grade)) &&
+      row.startMinutes < event.endMinutes &&
+      row.endMinutes > event.startMinutes &&
+      !timesOverlap_(row.startMinutes, row.endMinutes, block.startMinutes, block.endMinutes)
+    )
+    .sort((a, b) => a.startMinutes - b.startMinutes);
+
+  for (const released of releasedRows) {
+    const slot = findOpenBreakSlotInReleasedRow_(candidate.name, released, breakDuration, state);
+    if (!slot) continue;
+
+    return {
+      eventId: event.eventId,
+      originalBreakStartMinutes: currentBreak.startMinutes,
+      originalBreakEndMinutes: currentBreak.endMinutes,
+      replacementStartMinutes: slot.startMinutes,
+      replacementEndMinutes: slot.endMinutes,
+      replacementGrade: normalizeGradeKey_(released.grade),
+      replacementClass: released.className || released.subject || 'trip-grade class',
+      reason:
+        'Break moved from ' +
+        minutesToDisplay_(currentBreak.startMinutes) + '–' + minutesToDisplay_(currentBreak.endMinutes) +
+        ' to ' +
+        minutesToDisplay_(slot.startMinutes) + '–' + minutesToDisplay_(slot.endMinutes) +
+        ' because ' + (released.className || (normalizeGradeKey_(released.grade) + ' class')) +
+        ' is cancelled by ' + (event.name || 'the field trip')
+    };
+  }
+
+  return null;
+}
+
+function candidateFieldTripAvailability_(candidate, block, availabilityRows, state) {
   if (!block.fieldTripEventId || !candidateHasFieldTripEvent_(candidate, block.fieldTripEventId)) {
-    return { available: false, fieldTripPriority: 0, fieldTripReason: '' };
+    return { available: false, fieldTripPriority: 0, fieldTripReason: '', fieldTripBreakMove: null };
   }
 
   const event = (candidate.fieldTripEvents || []).find(item => item.eventId === block.fieldTripEventId);
-  if (!event) return { available: false, fieldTripPriority: 0, fieldTripReason: '' };
+  if (!event) {
+    return { available: false, fieldTripPriority: 0, fieldTripReason: '', fieldTripBreakMove: null };
+  }
+
+  if (candidateHasReservedBreakConflict_(candidate.name, block, state)) {
+    return {
+      available: false,
+      fieldTripPriority: 0,
+      fieldTripReason: 'Reserved as replacement break for an earlier field-trip coverage assignment',
+      fieldTripBreakMove: null
+    };
+  }
 
   const released = availabilityRows.find(row =>
     row.startMinutes <= block.startMinutes &&
     row.endMinutes >= block.endMinutes &&
     isInstructionalGradeBlock_(row) &&
+    row.startMinutes < event.endMinutes &&
+    row.endMinutes > event.startMinutes &&
     (event.grades || []).some(grade => normalizeGradeKey_(grade) === normalizeGradeKey_(row.grade))
   );
 
   if (released) {
     return {
       available: true,
-      fieldTripPriority: 2,
-      fieldTripReason: 'Field trip release from ' + (released.grade || 'trip-grade') + ' class'
+      fieldTripPriority: 3,
+      fieldTripReason:
+        'Available because ' + (released.className || (normalizeGradeKey_(released.grade) + ' class')) +
+        ' is cancelled by ' + (event.name || 'the field trip'),
+      fieldTripBreakMove: null
     };
   }
 
-  const freeBlock = availabilityRows.find(row =>
+  const planning = availabilityRows.find(row =>
     row.startMinutes <= block.startMinutes &&
     row.endMinutes >= block.endMinutes &&
-    row.coverEligibleThisBlock
+    row.coverEligibleThisBlock &&
+    assignmentTypeIsPlanning_(row)
   );
 
-  if (freeBlock) {
+  if (planning) {
     return {
       available: true,
       fieldTripPriority: 1,
-      fieldTripReason: 'Field trip pool using ' + (freeBlock.assignmentType || 'free block').toLowerCase()
+      fieldTripReason:
+        'Available during planning; included in the field-trip pool because this teacher teaches ' +
+        ((event.grades || []).join('/') || 'the trip grade'),
+      fieldTripBreakMove: null
     };
   }
 
-  return { available: false, fieldTripPriority: 0, fieldTripReason: '' };
+  const breakMove = findFieldTripBreakMove_(candidate, block, event, availabilityRows, state);
+  if (breakMove) {
+    return {
+      available: true,
+      fieldTripPriority: 2,
+      fieldTripReason: breakMove.reason,
+      fieldTripBreakMove: breakMove
+    };
+  }
+
+  return { available: false, fieldTripPriority: 0, fieldTripReason: '', fieldTripBreakMove: null };
 }
 
 function generateCoveragePreview(payload) {
@@ -926,6 +1084,28 @@ function generateCoveragePreview(payload) {
       }
 
       let usedSomeone = false;
+
+      // Field-trip coverage is intentionally assigned one block at a time.
+      // This lets the scheduler reserve replacement break windows as soon as
+      // a break is moved, so those same released blocks cannot be reused.
+      if (isFieldTripNeed) {
+        blocks.forEach(block => {
+          const best = pickBestBlockCandidate_(absentName, block, coverageStaff, teacherSchedule, day, state, config);
+          if (best) {
+            planRows.push(makePlanRow_(date, day, block, best, 'Field Trip Coverage', 'Assigned', best.reason));
+            recordAssignment_(state, best, block, absentName);
+            summary.assignedBlocks += 1;
+            usedSomeone = true;
+          } else {
+            planRows.push(makePlanRow_(date, day, block, null, 'Field Trip Coverage', 'Unfilled', 'No eligible field-trip coverage person or fallback coverage person found.'));
+            summary.unfilledBlocks += 1;
+          }
+        });
+
+        if (usedSomeone) summary.splitAssignments += 1;
+        return;
+      }
+
       const remainingBlocks = [];
       const primary = pickPrimarySplitCandidate_(absentName, blocks, coverageStaff, teacherSchedule, day, state, config);
 
@@ -1118,7 +1298,7 @@ function pickBestWholeDayCandidate_(absentName, blocks, coverageStaff, teacherSc
     .filter(candidate => candidateCanCoverAllBlocks_(candidate, absentName, blocks, teacherSchedule, day, state, config))
     .map(candidate => {
       const usesEmergencyPull = blocks.some(block =>
-        candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day).emergencyPull
+        candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day, state).emergencyPull
       );
       return {
         name: candidate.name,
@@ -1157,7 +1337,7 @@ function pickPrimarySplitCandidate_(absentName, blocks, coverageStaff, teacherSc
       if (!coverableBlocks.length) return null;
 
       const availabilities = coverableBlocks.map(block =>
-        candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day)
+        candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day, state)
       );
       const usesEmergencyPull = availabilities.some(info => info.emergencyPull);
       const bestFieldTrip = availabilities
@@ -1226,7 +1406,7 @@ function pickBestBlockCandidate_(absentName, block, coverageStaff, teacherSchedu
 
   const candidates = eligible
     .map(candidate => {
-      const availability = candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day);
+      const availability = candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day, state);
       const scoredCandidate = Object.assign({}, candidate, {
         emergencyPull: availability.emergencyPull
       });
@@ -1251,6 +1431,7 @@ function pickBestBlockCandidate_(absentName, block, coverageStaff, teacherSchedu
         fieldTripOnly: !!candidate.fieldTripOnly,
         emergencyPull: availability.emergencyPull,
         fieldTripReason: fieldTripReason,
+        fieldTripBreakMove: availability.fieldTripBreakMove || null,
         score: scoreInfo.score + fieldTripBoost,
         reason: (fieldTripReason ? fieldTripReason + '; ' : '') + scoreInfo.reason
       };
@@ -1272,13 +1453,14 @@ function candidateCanCoverBlock_(candidate, absentName, block, teacherSchedule, 
   if (!candidate.activeToday) return false;
   if (candidate.fieldTripOnly && !block.fieldTripEventId) return false;
   if (candidateIsAbsentForBlock_(candidate.name, block, state)) return false;
+  if (candidateHasReservedBreakConflict_(candidate.name, block, state)) return false;
   if (!candidateCanTakeTeacher_(candidate, absentName, 1, state, config)) return false;
   if (!block.emergencyOverride) {
     if (!matchesAllowedValue_(candidate.allowedAssignmentTypes, block.assignmentType)) return false;
     if (!matchesAllowedValue_(candidate.allowedSubjects, block.subject)) return false;
     if (!matchesAllowedGrade_(candidate.allowedGrades, block.grade)) return false;
   }
-  if (!candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day).available) return false;
+  if (!candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day, state).available) return false;
   if (candidateHasTimeConflict_(candidate.name, block, state)) return false;
   if ((state.blocksByCandidate[candidate.name] || 0) + 1 > candidate.maxBlocksPerDay) return false;
   return true;
@@ -1294,43 +1476,59 @@ function candidateCanTakeTeacher_(candidate, absentName, additionalBlocks, state
   return true;
 }
 
-function candidateHasAvailabilityForBlock_(candidate, block, teacherSchedule, day) {
-  return candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day).available;
+function candidateHasAvailabilityForBlock_(candidate, block, teacherSchedule, day, state) {
+  return candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day, state).available;
 }
 
-function candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day) {
+function candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day, state) {
   if (!candidateAvailabilityWindowAllowsBlock_(candidate, block)) {
-    return { available: false, emergencyPull: false, fieldTripPriority: 0, fieldTripReason: '' };
+    return { available: false, emergencyPull: false, fieldTripPriority: 0, fieldTripReason: '', fieldTripBreakMove: null };
   }
 
   const availabilityRows = teacherSchedule
     .map(row => normalizeTeacherScheduleRow_(row))
     .filter(row => row.staffName === candidate.name && row.day === day);
 
-  const fieldTripAvailability = candidateFieldTripAvailability_(candidate, block, availabilityRows);
+  const fieldTripAvailability = candidateFieldTripAvailability_(candidate, block, availabilityRows, state);
   if (fieldTripAvailability.available) {
     return {
       available: true,
       emergencyPull: false,
       fieldTripPriority: fieldTripAvailability.fieldTripPriority,
-      fieldTripReason: fieldTripAvailability.fieldTripReason
+      fieldTripReason: fieldTripAvailability.fieldTripReason,
+      fieldTripBreakMove: fieldTripAvailability.fieldTripBreakMove || null
     };
   }
 
   if (candidate.fieldTripOnly) {
-    return { available: false, emergencyPull: false, fieldTripPriority: 0, fieldTripReason: '' };
+    return {
+      available: false,
+      emergencyPull: false,
+      fieldTripPriority: 0,
+      fieldTripReason: fieldTripAvailability.fieldTripReason || '',
+      fieldTripBreakMove: null
+    };
   }
 
   if (candidate.canCoverAllDay) {
-    return { available: true, emergencyPull: false, fieldTripPriority: 0, fieldTripReason: '' };
+    return { available: true, emergencyPull: false, fieldTripPriority: 0, fieldTripReason: '', fieldTripBreakMove: null };
   }
 
-  if (availabilityRows.some(row => row.coverEligibleThisBlock && row.startMinutes <= block.startMinutes && row.endMinutes >= block.endMinutes)) {
-    return { available: true, emergencyPull: false, fieldTripPriority: 0, fieldTripReason: '' };
+  if (availabilityRows.some(row =>
+    row.coverEligibleThisBlock &&
+    row.startMinutes <= block.startMinutes &&
+    row.endMinutes >= block.endMinutes &&
+    (
+      !assignmentTypeIsBreak_(row) ||
+      !block.fieldTripEventId ||
+      !candidateHasFieldTripEvent_(candidate, block.fieldTripEventId)
+    )
+  )) {
+    return { available: true, emergencyPull: false, fieldTripPriority: 0, fieldTripReason: '', fieldTripBreakMove: null };
   }
 
   if (!block.emergencyOverride || Number(candidate.tier) !== 3) {
-    return { available: false, emergencyPull: false, fieldTripPriority: 0, fieldTripReason: '' };
+    return { available: false, emergencyPull: false, fieldTripPriority: 0, fieldTripReason: '', fieldTripBreakMove: null };
   }
 
   const emergencyRow = availabilityRows.find(row =>
@@ -1343,7 +1541,8 @@ function candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day) 
     available: !!emergencyRow,
     emergencyPull: !!emergencyRow,
     fieldTripPriority: 0,
-    fieldTripReason: ''
+    fieldTripReason: '',
+    fieldTripBreakMove: null
   };
 }
 
@@ -1433,6 +1632,29 @@ function recordAssignment_(state, candidate, block, absentName) {
     startMinutes: block.startMinutes,
     endMinutes: block.endMinutes
   });
+
+  if (candidate.fieldTripBreakMove) {
+    if (!state.breakReservationsByCandidate[candidate.name]) {
+      state.breakReservationsByCandidate[candidate.name] = [];
+    }
+    const move = candidate.fieldTripBreakMove;
+    const duplicate = state.breakReservationsByCandidate[candidate.name].some(existing =>
+      existing.eventId === move.eventId &&
+      existing.startMinutes === move.replacementStartMinutes &&
+      existing.endMinutes === move.replacementEndMinutes
+    );
+    if (!duplicate) {
+      state.breakReservationsByCandidate[candidate.name].push({
+        eventId: move.eventId,
+        startMinutes: move.replacementStartMinutes,
+        endMinutes: move.replacementEndMinutes,
+        originalBreakStartMinutes: move.originalBreakStartMinutes,
+        originalBreakEndMinutes: move.originalBreakEndMinutes,
+        reason: move.reason
+      });
+    }
+  }
+
   state.blocksByCandidate[candidate.name] = (state.blocksByCandidate[candidate.name] || 0) + 1;
   if (!state.teachersByCandidate[candidate.name]) state.teachersByCandidate[candidate.name] = {};
   state.teachersByCandidate[candidate.name][absentName] = true;
@@ -1443,7 +1665,8 @@ function makeEmptyState_() {
     assignmentsByCandidate: {},
     blocksByCandidate: {},
     teachersByCandidate: {},
-    absencesByCandidate: {}
+    absencesByCandidate: {},
+    breakReservationsByCandidate: {}
   };
 }
 
