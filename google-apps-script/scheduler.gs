@@ -52,7 +52,8 @@ const HEADER_ALIASES = {
   'Field Trips': {
     Event_ID: ['Event_ID', 'Event ID', 'ID'],
     Name: ['Name', 'Event_Name', 'Event Name'],
-    Date: ['Date'],
+    Date: ['Date', 'Start_Date', 'Start Date'],
+    End_Date: ['End_Date', 'End Date'],
     Start: ['Start', 'Start_Time', 'Start Time'],
     End: ['End', 'End_Time', 'End Time'],
     Grades: ['Grades', 'Students_Away', 'Students Away'],
@@ -167,10 +168,14 @@ function normalizeFieldTripGrades_(value) {
 }
 
 function normalizeFieldTripRow_(row) {
+  const startDate = normalizeDateKey_(row.Date);
+  const endDate = normalizeDateKey_(row.End_Date) || startDate;
   return {
     eventId: String(row.Event_ID || '').trim(),
     name: String(row.Name || '').trim(),
-    date: normalizeDateKey_(row.Date),
+    date: startDate,
+    startDate: startDate,
+    endDate: endDate,
     start: timeToDisplay_(row.Start),
     end: timeToDisplay_(row.End),
     grades: normalizeFieldTripGrades_(row.Grades),
@@ -187,18 +192,62 @@ function getFieldTripsInRange_(startDate, endDate) {
   const end = normalizeDateKey_(endDate || startDate);
   return readSheetObjects_('Field Trips')
     .map(normalizeFieldTripRow_)
-    .filter(row => row.eventId && row.date && (!start || row.date >= start) && (!end || row.date <= end))
-    .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start) || a.name.localeCompare(b.name));
+    .filter(row =>
+      row.eventId &&
+      row.startDate &&
+      row.endDate &&
+      (!start || row.endDate >= start) &&
+      (!end || row.startDate <= end)
+    )
+    .sort((a, b) =>
+      a.startDate.localeCompare(b.startDate) ||
+      a.start.localeCompare(b.start) ||
+      a.name.localeCompare(b.name)
+    );
+}
+
+function fieldTripForDate_(trip, date) {
+  const key = normalizeDateKey_(date);
+  if (!trip || !key || key < trip.startDate || key > trip.endDate) return null;
+
+  const sameDay = trip.startDate === trip.endDate;
+  let effectiveStartMinutes = 0;
+  let effectiveEndMinutes = 1440;
+  let allDayForDate = !sameDay && key !== trip.startDate && key !== trip.endDate;
+
+  if (sameDay) {
+    effectiveStartMinutes = displayTimeToMinutes_(trip.start);
+    effectiveEndMinutes = displayTimeToMinutes_(trip.end);
+    allDayForDate = false;
+  } else if (key === trip.startDate) {
+    effectiveStartMinutes = displayTimeToMinutes_(trip.start);
+    effectiveEndMinutes = 1440;
+    allDayForDate = false;
+  } else if (key === trip.endDate) {
+    effectiveStartMinutes = 0;
+    effectiveEndMinutes = displayTimeToMinutes_(trip.end);
+    allDayForDate = false;
+  }
+
+  return Object.assign({}, trip, {
+    activeDate: key,
+    effectiveStartMinutes: effectiveStartMinutes,
+    effectiveEndMinutes: effectiveEndMinutes,
+    allDayForDate: allDayForDate
+  });
 }
 
 function getFieldTripsForDate_(date) {
   const key = normalizeDateKey_(date);
-  return getFieldTripsInRange_(key, key);
+  return getFieldTripsInRange_(key, key)
+    .map(trip => fieldTripForDate_(trip, key))
+    .filter(Boolean);
 }
 
 function saveFieldTrip_(payload) {
   payload = payload || {};
-  const date = normalizeDateKey_(payload.date);
+  const startDate = normalizeDateKey_(payload.startDate || payload.date);
+  const endDate = normalizeDateKey_(payload.endDate || payload.startDate || payload.date);
   const name = String(payload.name || '').trim();
   const start = timeToDisplay_(payload.start);
   const end = timeToDisplay_(payload.end);
@@ -206,14 +255,21 @@ function saveFieldTrip_(payload) {
   const staffNames = splitFieldTripList_(payload.staffNames || payload.staff);
   const notes = String(payload.notes || '').trim();
 
-  if (!date) throw new Error('Choose a valid field trip date.');
+  if (!startDate) throw new Error('Choose a valid field trip start date.');
+  if (!endDate) throw new Error('Choose a valid field trip end date.');
+  if (endDate < startDate) throw new Error('Field trip end date must be the same as or after the start date.');
   if (!name) throw new Error('Enter a field trip name.');
-  if (!start || !end) throw new Error('Enter both the field trip start and end time.');
+  if (!start || !end) throw new Error('Enter both the departure and return time.');
+
   const startMinutes = displayTimeToMinutes_(start);
   const endMinutes = displayTimeToMinutes_(end);
-  if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) {
-    throw new Error('Field trip end time must be after the start time.');
+  if (startMinutes == null || endMinutes == null) {
+    throw new Error('Enter valid field trip departure and return times.');
   }
+  if (startDate === endDate && endMinutes <= startMinutes) {
+    throw new Error('For a one-day field trip, return time must be after departure time.');
+  }
+
   if (!grades.length) throw new Error('Choose at least one student grade for the field trip.');
   if (!staffNames.length) throw new Error('Choose at least one staff member going on the field trip.');
 
@@ -224,7 +280,7 @@ function saveFieldTrip_(payload) {
 
   let eventId = String(payload.eventId || '').trim();
   if (!eventId) {
-    eventId = 'FT-' + date.replace(/-/g, '') + '-' + Utilities.getUuid().slice(0, 8).toUpperCase();
+    eventId = 'FT-' + startDate.replace(/-/g, '') + '-' + Utilities.getUuid().slice(0, 8).toUpperCase();
   }
 
   const values = sheet.getDataRange().getValues();
@@ -240,7 +296,8 @@ function saveFieldTrip_(payload) {
   setSheetRowObject_(sheet, targetRow, headers, HEADER_ALIASES['Field Trips'], {
     Event_ID: eventId,
     Name: name,
-    Date: date,
+    Date: startDate,
+    End_Date: endDate,
     Start: start,
     End: end,
     Grades: grades.join(' | '),
@@ -251,7 +308,8 @@ function saveFieldTrip_(payload) {
   return normalizeFieldTripRow_({
     Event_ID: eventId,
     Name: name,
-    Date: date,
+    Date: startDate,
+    End_Date: endDate,
     Start: start,
     End: end,
     Grades: grades.join(' | '),
@@ -574,8 +632,12 @@ function replaceDailyAbsences(payload) {
 
 function fieldTripTimes_(trip) {
   return {
-    startMinutes: displayTimeToMinutes_(trip.start),
-    endMinutes: displayTimeToMinutes_(trip.end)
+    startMinutes: trip && trip.effectiveStartMinutes != null
+      ? Number(trip.effectiveStartMinutes)
+      : displayTimeToMinutes_(trip && trip.start),
+    endMinutes: trip && trip.effectiveEndMinutes != null
+      ? Number(trip.effectiveEndMinutes)
+      : displayTimeToMinutes_(trip && trip.end)
   };
 }
 
@@ -607,12 +669,13 @@ function blockIsCancelledByFieldTrip_(row, fieldTrips) {
 function buildFieldTripParticipantAbsences_(fieldTrips) {
   const rows = [];
   (fieldTrips || []).forEach(trip => {
+    const times = fieldTripTimes_(trip);
     (trip.staffNames || []).forEach(name => {
       rows.push({
         staffName: name,
-        absenceType: 'Partial Day',
-        startOverride: trip.start,
-        endOverride: trip.end,
+        absenceType: trip.allDayForDate ? 'Full Day' : 'Partial Day',
+        startOverride: trip.allDayForDate ? '' : minutesToDisplay_(Math.min(times.startMinutes, 1439)),
+        endOverride: trip.allDayForDate ? '' : minutesToDisplay_(Math.min(times.endMinutes, 1439)),
         notes: trip.name || 'Field Trip',
         emergency: false,
         preferredCoverage: '',
@@ -985,11 +1048,7 @@ function buildCoverageNeedsByTeacher_(absences, teacherSchedule, day, fieldTrips
   });
 
   (fieldTrips || []).forEach(trip => {
-    const eventAbsence = {
-      absenceType: 'Partial Day',
-      startOverride: trip.start,
-      endOverride: trip.end
-    };
+    const tripTimes = fieldTripTimes_(trip);
 
     (trip.staffNames || []).forEach(name => {
       const relevantRows = normalizedSchedule
@@ -1000,7 +1059,9 @@ function buildCoverageNeedsByTeacher_(absences, teacherSchedule, day, fieldTrips
           !blockIsCancelledByFieldTrip_(row, [trip])
         );
 
-      filterRowsByAbsenceType_(relevantRows, eventAbsence).forEach(row => {
+      relevantRows
+        .filter(row => row.startMinutes < tripTimes.endMinutes && row.endMinutes > tripTimes.startMinutes)
+        .forEach(row => {
         row.emergencyOverride = false;
         row.fieldTripEventId = trip.eventId;
         row.fieldTripName = trip.name;
