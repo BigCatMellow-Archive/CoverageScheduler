@@ -4,6 +4,25 @@ function getFieldTripUi_() {
   .ft-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px;background:rgba(246,183,86,.18);color:#8a5a00;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
   .field-trip-row{border-left:3px solid var(--accent,#f6b756)}
   .ft-meta{margin-top:4px;font-size:10px;color:var(--text-muted,#6b7280);line-height:1.35}
+  .ft-people{margin-top:4px;font-size:10px;color:var(--text,#1f2937);line-height:1.35}
+  .ft-plan-wrap{margin:0 0 14px}
+  .ft-plan-card{margin-bottom:10px;padding:12px 13px;background:#fff;border:1px solid var(--border,#e2e5eb);border-left:4px solid var(--accent,#f6b756);border-radius:10px;box-shadow:var(--shadow-card,0 2px 5px rgba(0,0,0,.06))}
+  .ft-plan-hd{display:flex;align-items:flex-start;gap:10px}
+  .ft-plan-title{font-size:13px;font-weight:850;color:var(--text,#1f2937)}
+  .ft-plan-sub{margin-top:2px;font-size:10px;color:var(--text-muted,#6b7280)}
+  .ft-plan-edit{border:1px solid #d7dce5;background:#fff;color:var(--primary,#214289);border-radius:7px;padding:5px 8px;font-size:10px;font-weight:800;cursor:pointer}
+  .ft-plan-edit:hover{border-color:var(--primary,#214289);background:rgba(33,66,137,.045)}
+  .ft-plan-section{margin-top:9px}
+  .ft-plan-label{font-size:9px;font-weight:850;text-transform:uppercase;letter-spacing:.05em;color:#64748b}
+  .ft-plan-value{margin-top:3px;font-size:11px;color:var(--text,#1f2937);line-height:1.4}
+  .ft-plan-lines{margin-top:5px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden}
+  .ft-plan-line{display:grid;grid-template-columns:88px minmax(110px,1fr) minmax(130px,1.25fr);gap:8px;align-items:center;padding:7px 8px;border-bottom:1px solid #edf0f4;font-size:10px;cursor:pointer}
+  .ft-plan-line:last-child{border-bottom:0}
+  .ft-plan-line:hover{background:#f7f8fb}
+  .ft-plan-who{font-weight:750;color:var(--text,#1f2937)}
+  .ft-plan-cover{font-weight:800;color:var(--primary,#214289)}
+  .ft-plan-cover.unfilled{color:var(--error,#dc2626)}
+  .ft-plan-none{margin-top:5px;padding:7px 8px;border-radius:8px;background:#f7f8fb;color:var(--text-muted,#6b7280);font-size:10px}
   .ft-grade-grid{display:flex;flex-wrap:wrap;gap:6px}
   .ft-grade-check{position:relative}
   .ft-grade-check input{position:absolute;opacity:0;pointer-events:none}
@@ -129,8 +148,11 @@ function getFieldTripUi_() {
   }
 
   function updateStaffHint(){
-    var count=Object.keys(selectedStaff).filter(function(k){return selectedStaff[k];}).length;
-    document.getElementById('ftStaffHint').textContent=count?count+' staff member'+(count===1?'':'s')+' selected.':'Choose the staff members going on the trip.';
+    var names=Object.keys(selectedStaff).filter(function(k){return selectedStaff[k];}).sort();
+    var count=names.length;
+    document.getElementById('ftStaffHint').textContent=count
+      ? count+' staff member'+(count===1?'':'s')+' selected: '+names.join(', ')
+      : 'Choose the staff members going on the trip.';
   }
 
   function renderStaff(){
@@ -228,10 +250,68 @@ function getFieldTripUi_() {
       var startDate=trip.startDate||trip.date,endDate=trip.endDate||startDate,active=trip.activeDate||S.date;
       var windowText=startDate===endDate?(trip.start+'–'+trip.end):(active===startDate?('Departs '+trip.start):active===endDate?('Returns '+trip.end):'Overnight · all day');
       var rangeText=startDate!==endDate?(' · '+startDate+' → '+endDate):'';
-      return '<div class="abs-row field-trip-row"><div class="abs-info"><div class="abs-name">'+esc(trip.name||'Field Trip')+'</div><span class="ft-badge">Field Trip</span><div class="ft-meta">Grades '+esc(grades)+' · '+people+' staff · '+esc(windowText)+esc(rangeText)+'</div></div><button class="link-btn" data-edit-fieldtrip="'+esc(trip.eventId)+'">Edit</button></div>';
+      var staffNames=(trip.staffNames||[]).join(', ');
+      return '<div class="abs-row field-trip-row"><div class="abs-info"><div class="abs-name">'+esc(trip.name||'Field Trip')+'</div><span class="ft-badge">Field Trip</span><div class="ft-meta">Grades '+esc(grades)+' · '+people+' staff · '+esc(windowText)+esc(rangeText)+'</div><div class="ft-people"><strong>On trip:</strong> '+esc(staffNames||'No staff selected')+'</div></div><button class="link-btn" data-edit-fieldtrip="'+esc(trip.eventId)+'">View / Edit</button></div>';
     }).join('');
     list.innerHTML=tripHtml+existing;
   }
+
+  function fieldTripPlanRows(trip){
+    return (S.plan||[]).map(function(row,index){return {row:row,index:index};}).filter(function(item){
+      return String(item.row.Event_ID||'')===String(trip.eventId||'');
+    });
+  }
+
+  function fieldTripReleasedStaff(trip){
+    return (S.fieldTripCoverage||[]).filter(function(person){
+      return (person.fieldTripEvents||[]).some(function(event){return String(event.eventId||'')===String(trip.eventId||'');});
+    }).map(function(person){return person.name;}).filter(Boolean).sort();
+  }
+
+  function tripWindowText(trip){
+    var startDate=trip.startDate||trip.date,endDate=trip.endDate||startDate,active=trip.activeDate||S.date;
+    if(startDate===endDate)return trip.start+'–'+trip.end;
+    if(active===startDate)return 'Departs '+trip.start;
+    if(active===endDate)return 'Returns '+trip.end;
+    return 'Overnight · all day';
+  }
+
+  function renderFieldTripPlanSummary(){
+    var trips=S.fieldTrips||[];
+    if(!trips.length||S.generating)return '';
+
+    return '<div class="ft-plan-wrap">'+trips.map(function(trip){
+      var rows=fieldTripPlanRows(trip);
+      var onTrip=(trip.staffNames||[]);
+      var released=fieldTripReleasedStaff(trip);
+      var grades=(trip.grades||[]).join(', ');
+      var assignments=rows.length
+        ? '<div class="ft-plan-lines">'+rows.map(function(item){
+            var r=item.row;
+            var classText=r.Class||r.Subject||r.Assignment_Type||'Coverage block';
+            var coverage=r.Assigned_Coverage||'Unfilled';
+            return '<div class="ft-plan-line" data-ft-plan-block="'+item.index+'"><span class="mono">'+esc(timeDisplay(r.Start))+'–'+esc(timeDisplay(r.End))+'</span><span class="ft-plan-who">'+esc(r.Absent_Staff)+' · '+esc(classText)+'</span><span class="ft-plan-cover '+(r.Assigned_Coverage?'':'unfilled')+'">'+esc(coverage)+'</span></div>';
+          }).join('')+'</div>'
+        : '<div class="ft-plan-none">No field-trip coverage assignments are currently in the generated plan for this date. If the trip staff have non-trip classes during the event window, generate or re-generate the plan to calculate them.</div>';
+
+      return '<div class="ft-plan-card">'+
+        '<div class="ft-plan-hd"><div><div class="ft-plan-title">'+esc(trip.name||'Field Trip')+' <span class="ft-badge">Field Trip</span></div><div class="ft-plan-sub">Grades '+esc(grades||'—')+' · '+esc(tripWindowText(trip))+'</div></div><div class="sp-r"></div><button class="ft-plan-edit" data-plan-edit-fieldtrip="'+esc(trip.eventId)+'">View / Edit Trip</button></div>'+
+        '<div class="ft-plan-section"><div class="ft-plan-label">Staff on trip</div><div class="ft-plan-value">'+esc(onTrip.length?onTrip.join(', '):'No staff selected')+'</div></div>'+
+        '<div class="ft-plan-section"><div class="ft-plan-label">Released staff available to help</div><div class="ft-plan-value">'+esc(released.length?released.join(', '):'None identified for this trip/date')+'</div></div>'+
+        '<div class="ft-plan-section"><div class="ft-plan-label">Coverage for classes still at school</div>'+assignments+'</div>'+
+      '</div>';
+    }).join('')+'</div>';
+  }
+
+  var baseRenderPlan=renderPlan;
+  renderPlan=function(){
+    baseRenderPlan();
+    var summary=renderFieldTripPlanSummary();
+    if(summary){
+      var body=document.getElementById('planBody');
+      body.insertAdjacentHTML('afterbegin',summary);
+    }
+  };
 
   var baseRenderAbsences=renderAbsences;
   renderAbsences=function(){
@@ -341,6 +421,15 @@ function getFieldTripUi_() {
   document.getElementById('absenceList').addEventListener('click',function(e){
     var b=e.target.closest('[data-edit-fieldtrip]');
     if(b)window.openFieldTripModal(b.dataset.editFieldtrip);
+  });
+  document.getElementById('planBody').addEventListener('click',function(e){
+    var edit=e.target.closest('[data-plan-edit-fieldtrip]');
+    if(edit){
+      window.openFieldTripModal(edit.dataset.planEditFieldtrip);
+      return;
+    }
+    var block=e.target.closest('[data-ft-plan-block]');
+    if(block)openBlock(Number(block.dataset.ftPlanBlock));
   });
   document.getElementById('calendarGrid').addEventListener('click',function(e){
     var tripButton=e.target.closest('[data-calendar-trip]');
