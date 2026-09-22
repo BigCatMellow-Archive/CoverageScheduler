@@ -681,7 +681,9 @@ function buildFieldTripParticipantAbsences_(fieldTrips) {
         notes: trip.name || 'Field Trip',
         emergency: false,
         preferredCoverage: '',
-        fieldTripEventId: trip.eventId
+        fieldTripEventId: trip.eventId,
+        fieldTripName: trip.name,
+        fieldTripGrades: (trip.grades || []).slice()
       });
     });
   });
@@ -828,6 +830,7 @@ function generateCoveragePreview(payload) {
   const absences = getDailyAbsencesForDate_(date, day);
   const fieldTrips = getFieldTripsForDate_(date);
   const fieldTripAbsences = buildFieldTripParticipantAbsences_(fieldTrips);
+  const effectiveAbsences = absences.concat(fieldTripAbsences);
   const coverageStaff = buildFieldTripCoverageCandidates_(
     fieldTrips,
     teacherSchedule,
@@ -836,10 +839,13 @@ function generateCoveragePreview(payload) {
     configuredCoverageStaff
   );
 
-  const needsByTeacher = buildCoverageNeedsByTeacher_(absences, teacherSchedule, day, fieldTrips);
+  // Field-trip participants enter the exact same absence-to-plan pipeline as
+  // ordinary absences. Their event metadata only changes which classes are
+  // cancelled and which event-specific coverage pool is preferred.
+  const needsByTeacher = buildCoverageNeedsByTeacher_(effectiveAbsences, teacherSchedule, day, fieldTrips);
 
   const state = makeEmptyState_();
-  state.absencesByCandidate = buildAbsenceWindowsByStaff_(fieldTripAbsences.concat(absences));
+  state.absencesByCandidate = buildAbsenceWindowsByStaff_(effectiveAbsences);
   const planRows = [];
   const summary = {
     totalAbsentStaff: 0,
@@ -1029,51 +1035,57 @@ function writePreview_(rows) {
 function buildCoverageNeedsByTeacher_(absences, teacherSchedule, day, fieldTrips) {
   const needs = {};
   const normalizedSchedule = teacherSchedule.map(row => normalizeTeacherScheduleRow_(row));
+  const tripsById = {};
+  (fieldTrips || []).forEach(trip => {
+    if (trip && trip.eventId) tripsById[String(trip.eventId)] = trip;
+  });
 
   function addNeed(name, row) {
     if (!needs[name]) needs[name] = [];
-    const key = [row.startMinutes, row.endMinutes, row.className, row.assignmentType, row.fieldTripEventId || ''].join('|');
-    if (needs[name].some(existing => [existing.startMinutes, existing.endMinutes, existing.className, existing.assignmentType, existing.fieldTripEventId || ''].join('|') === key)) return;
+    const key = [row.startMinutes, row.endMinutes, row.className, row.assignmentType].join('|');
+    const existing = needs[name].find(item =>
+      [item.startMinutes, item.endMinutes, item.className, item.assignmentType].join('|') === key
+    );
+    if (existing) {
+      if (row.fieldTripEventId && !existing.fieldTripEventId) {
+        existing.fieldTripEventId = row.fieldTripEventId;
+        existing.fieldTripName = row.fieldTripName;
+        existing.fieldTripGrades = (row.fieldTripGrades || []).slice();
+      }
+      return;
+    }
     needs[name].push(row);
   }
 
   (absences || []).forEach(absence => {
     const name = absence.staffName;
-    const relevantRows = normalizedSchedule
-      .filter(row =>
-        row.staffName === name &&
-        row.day === day &&
-        row.needsCoverageIfAbsent &&
-        !blockIsCancelledByFieldTrip_(row, fieldTrips)
-      );
+    if (!name) return;
+
+    const trip = absence.fieldTripEventId
+      ? tripsById[String(absence.fieldTripEventId)] || null
+      : null;
+
+    const relevantRows = normalizedSchedule.filter(row => {
+      if (row.staffName !== name || row.day !== day || !row.needsCoverageIfAbsent) return false;
+
+      // Any class whose students are away on a field trip is cancelled and
+      // never becomes a coverage need, whether the teacher is on the trip or
+      // absent for another reason.
+      if (blockIsCancelledByFieldTrip_(row, fieldTrips)) return false;
+
+      return true;
+    });
 
     filterRowsByAbsenceType_(relevantRows, absence).forEach(row => {
       row.emergencyOverride = !!absence.emergency;
-      addNeed(name, row);
-    });
-  });
 
-  (fieldTrips || []).forEach(trip => {
-    const tripTimes = fieldTripTimes_(trip);
-
-    (trip.staffNames || []).forEach(name => {
-      const relevantRows = normalizedSchedule
-        .filter(row =>
-          row.staffName === name &&
-          row.day === day &&
-          row.needsCoverageIfAbsent &&
-          !blockIsCancelledByFieldTrip_(row, [trip])
-        );
-
-      relevantRows
-        .filter(row => row.startMinutes < tripTimes.endMinutes && row.endMinutes > tripTimes.startMinutes)
-        .forEach(row => {
-        row.emergencyOverride = false;
+      if (trip) {
         row.fieldTripEventId = trip.eventId;
         row.fieldTripName = trip.name;
         row.fieldTripGrades = (trip.grades || []).slice();
-        addNeed(name, row);
-      });
+      }
+
+      addNeed(name, row);
     });
   });
 

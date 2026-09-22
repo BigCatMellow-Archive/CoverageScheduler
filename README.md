@@ -161,15 +161,18 @@ The scheduler covers blocks that overlap that absence window. A class from 10:30
 6. Save the field trip.
 7. Click **Generate Plan**.
 
-The scheduler changes the day before assigning coverage:
+The scheduler sends the field-trip staff through the same block-by-block coverage-plan pipeline used for ordinary absences, with one important exception: classes for the students who are away are removed first.
+
+That means:
 
 - Mike's 2nd-grade classes during the trip are treated as cancelled because those students are away.
-- Mike's 1st-grade classes still happen and therefore need coverage.
+- Mike's 1st-grade classes still happen and become normal coverage-plan rows.
 - Steve's 2nd-grade class during the trip is also treated as cancelled, so that block becomes temporary coverage availability.
-- Steve is preferred for field-trip coverage before an unrelated substitute when his released block fits.
+- Steve is preferred for Mike's overlapping 1st-grade coverage before an unrelated substitute when the times fit.
 - If Steve has a usable planning or break block during the trip, that can also be used.
 - Steve's other classes that are still happening keep him unavailable.
 - If the field-trip pool cannot cover a block, the scheduler falls back to the normal Coverage Staff pool.
+- The finished result appears in the normal coverage plan with a specific person assigned to each remaining class, or **Unfilled** if no eligible person exists.
 
 Field trips have stable event IDs and can be edited as one event from the **Calendar** or directly from the field-trip card in the daily coverage plan. The plan card shows the staff on the trip by name, teachers released to help because their trip-grade classes were cancelled, and the coverage assignment for each remaining class. Clicking a coverage line opens the normal manual reassignment editor. Changing the staff, grade, dates, or times changes the scheduling consequences the next time the plan is generated.
 

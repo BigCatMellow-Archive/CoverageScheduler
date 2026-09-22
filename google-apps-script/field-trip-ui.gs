@@ -257,8 +257,21 @@ function getFieldTripUi_() {
   }
 
   function fieldTripPlanRows(trip){
-    return (S.plan||[]).map(function(row,index){return {row:row,index:index};}).filter(function(item){
+    var linked=(S.plan||[]).map(function(row,index){return {row:row,index:index};}).filter(function(item){
       return String(item.row.Event_ID||'')===String(trip.eventId||'');
+    });
+    if(linked.length)return linked;
+
+    // Backward-compatible fallback for previews generated before Event_ID was
+    // added to _Preview: match trip participants during today's trip window.
+    var staff={};
+    (trip.staffNames||[]).forEach(function(name){staff[String(name)]=true;});
+    var start=trip.effectiveStartMinutes!=null?Number(trip.effectiveStartMinutes):mins(trip.start);
+    var end=trip.effectiveEndMinutes!=null?Number(trip.effectiveEndMinutes):mins(trip.end);
+    return (S.plan||[]).map(function(row,index){return {row:row,index:index};}).filter(function(item){
+      if(!staff[String(item.row.Absent_Staff||'')])return false;
+      var rowStart=mins(item.row.Start),rowEnd=mins(item.row.End);
+      return rowStart<end&&rowEnd>start;
     });
   }
 
@@ -292,13 +305,13 @@ function getFieldTripUi_() {
             var coverage=r.Assigned_Coverage||'Unfilled';
             return '<div class="ft-plan-line" data-ft-plan-block="'+item.index+'"><span class="mono">'+esc(timeDisplay(r.Start))+'–'+esc(timeDisplay(r.End))+'</span><span class="ft-plan-who">'+esc(r.Absent_Staff)+' · '+esc(classText)+'</span><span class="ft-plan-cover '+(r.Assigned_Coverage?'':'unfilled')+'">'+esc(coverage)+'</span></div>';
           }).join('')+'</div>'
-        : '<div class="ft-plan-none">No field-trip coverage assignments are currently in the generated plan for this date. If the trip staff have non-trip classes during the event window, generate or re-generate the plan to calculate them.</div>';
+        : '<div class="ft-plan-none">No field-trip coverage plan has been generated for this date yet. <button type="button" class="ft-plan-edit" data-ft-generate-plan="1" style="margin-left:6px">Generate Coverage Plan</button></div>';
 
       return '<div class="ft-plan-card">'+
         '<div class="ft-plan-hd"><div><div class="ft-plan-title">'+esc(trip.name||'Field Trip')+' <span class="ft-badge">Field Trip</span></div><div class="ft-plan-sub">Grades '+esc(grades||'—')+' · '+esc(tripWindowText(trip))+'</div></div><div class="sp-r"></div><button class="ft-plan-edit" data-plan-edit-fieldtrip="'+esc(trip.eventId)+'">View / Edit Trip</button></div>'+
         '<div class="ft-plan-section"><div class="ft-plan-label">Staff on trip</div><div class="ft-plan-value">'+esc(onTrip.length?onTrip.join(', '):'No staff selected')+'</div></div>'+
-        '<div class="ft-plan-section"><div class="ft-plan-label">Released staff available to help</div><div class="ft-plan-value">'+esc(released.length?released.join(', '):'None identified for this trip/date')+'</div></div>'+
-        '<div class="ft-plan-section"><div class="ft-plan-label">Coverage for classes still at school</div>'+assignments+'</div>'+
+        '<div class="ft-plan-section"><div class="ft-plan-label">Coverage plan for classes still at school</div>'+assignments+'</div>'+
+        '<div class="ft-plan-section"><div class="ft-plan-label">Field-trip coverage pool</div><div class="ft-plan-value">'+esc(released.length?released.join(', '):'No released staff identified; normal Coverage Staff will be used as needed.')+'</div></div>'+
       '</div>';
     }).join('')+'</div>';
   }
@@ -426,6 +439,11 @@ function getFieldTripUi_() {
     var edit=e.target.closest('[data-plan-edit-fieldtrip]');
     if(edit){
       window.openFieldTripModal(edit.dataset.planEditFieldtrip);
+      return;
+    }
+    var generateButton=e.target.closest('[data-ft-generate-plan]');
+    if(generateButton){
+      generate();
       return;
     }
     var block=e.target.closest('[data-ft-plan-block]');
