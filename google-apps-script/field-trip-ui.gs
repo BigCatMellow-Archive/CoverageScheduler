@@ -307,13 +307,17 @@ function getFieldTripUi_() {
             var why=String(r.Notes||'').trim()||'No scheduling explanation recorded.';
             return '<div class="ft-plan-line" data-ft-plan-block="'+item.index+'"><span class="mono">'+esc(timeDisplay(r.Start))+'–'+esc(timeDisplay(r.End))+'</span><span class="ft-plan-who">'+esc(r.Absent_Staff)+' · '+esc(classText)+'</span><span class="ft-plan-cover '+(r.Assigned_Coverage?'':'unfilled')+'">'+esc(coverage)+'</span><span class="ft-plan-why">'+esc(why)+'</span></div>';
           }).join('')+'</div>'
-        : '<div class="ft-plan-none">No field-trip coverage plan has been generated for this date yet. <button type="button" class="ft-plan-edit" data-ft-generate-plan="1" style="margin-left:6px">Generate Coverage Plan</button></div>';
+        : '<div class="ft-plan-none">No field-trip coverage rows are in the current plan. <button type="button" class="ft-plan-edit" data-ft-generate-plan="1" style="margin-left:6px">Generate Coverage Plan</button></div>';
+
+      var poolNote=rows.length
+        ? '<div class="ft-plan-value">'+released.length+' trip-grade teacher'+(released.length===1?'':'s')+' evaluated against these specific coverage times; normal Coverage Staff are fallback only.</div>'
+        : '<div class="ft-plan-value">Trip-grade teachers will be checked against each specific coverage time when the plan is generated.</div>';
 
       return '<div class="ft-plan-card">'+
         '<div class="ft-plan-hd"><div><div class="ft-plan-title">'+esc(trip.name||'Field Trip')+' <span class="ft-badge">Field Trip</span></div><div class="ft-plan-sub">Grades '+esc(grades||'—')+' · '+esc(tripWindowText(trip))+'</div></div><div class="sp-r"></div><button class="ft-plan-edit" data-plan-edit-fieldtrip="'+esc(trip.eventId)+'">View / Edit Trip</button></div>'+
         '<div class="ft-plan-section"><div class="ft-plan-label">Staff on trip</div><div class="ft-plan-value">'+esc(onTrip.length?onTrip.join(', '):'No staff selected')+'</div></div>'+
         '<div class="ft-plan-section"><div class="ft-plan-label">Coverage plan for classes still at school · assignment / why available</div>'+assignments+'</div>'+
-        '<div class="ft-plan-section"><div class="ft-plan-label">Field-trip coverage pool · teachers who teach the trip grade</div><div class="ft-plan-value">'+esc(released.length?released.join(', '):'No trip-grade teacher is available for this event/date; normal Coverage Staff will be used as needed.')+'</div></div>'+
+        '<div class="ft-plan-section"><div class="ft-plan-label">Scheduling rule</div>'+poolNote+'</div>'+
       '</div>';
     }).join('')+'</div>';
   }
