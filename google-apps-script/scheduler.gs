@@ -49,6 +49,16 @@ const HEADER_ALIASES = {
     Notes: ['Notes'],
     Preferred_Coverage: ['Preferred_Coverage', 'Preferred Coverage', 'Assigned_To']
   },
+  'Field Trips': {
+    Event_ID: ['Event_ID', 'Event ID', 'ID'],
+    Name: ['Name', 'Event_Name', 'Event Name'],
+    Date: ['Date'],
+    Start: ['Start', 'Start_Time', 'Start Time'],
+    End: ['End', 'End_Time', 'End Time'],
+    Grades: ['Grades', 'Students_Away', 'Students Away'],
+    Staff: ['Staff', 'Teachers', 'Staff_Away', 'Staff Away'],
+    Notes: ['Notes']
+  },
   'Coverage Output': {
     Date: ['Date'],
     Day: ['Day'],
@@ -89,6 +99,176 @@ const HEADER_ALIASES = {
     Description: ['Description']
   }
 };
+
+function ensureFieldTripsSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('Field Trips');
+  if (!sheet) {
+    sheet = ss.insertSheet('Field Trips');
+    sheet.getRange(1, 1, 1, SHEET_SCHEMAS['Field Trips'].headers.length)
+      .setValues([SHEET_SCHEMAS['Field Trips'].headers]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, SHEET_SCHEMAS['Field Trips'].headers.length)
+      .setFontWeight('bold')
+      .setBackground('#d9eaf7');
+  } else {
+    ensureHeaderRow_(sheet, SHEET_SCHEMAS['Field Trips'].headers);
+  }
+  return sheet;
+}
+
+function normalizeGradeKey_(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const compact = raw.toLowerCase().replace(/[.\s_-]+/g, '');
+
+  if (compact.indexOf('beginner') === 0 || compact === 'beg') return 'Beg';
+  if (compact.indexOf('prekindergarten') === 0 || compact.indexOf('prekind') === 0 || compact.indexOf('prek') === 0) return 'PreK';
+  if (compact === 'k' || compact.indexOf('kindergarten') === 0) return 'K';
+
+  const ordinal = raw.match(/\b(\d+)(?:st|nd|rd|th)?\b/i);
+  if (ordinal) return String(Number(ordinal[1]));
+
+  const gradeWord = raw.match(/grade\s*(\d+)/i);
+  if (gradeWord) return String(Number(gradeWord[1]));
+
+  return raw;
+}
+
+function splitFieldTripList_(value) {
+  if (Array.isArray(value)) return value.map(v => String(v || '').trim()).filter(Boolean);
+  return String(value || '')
+    .split(/\s*[|,;]\s*/)
+    .map(v => v.trim())
+    .filter(Boolean);
+}
+
+function normalizeFieldTripGrades_(value) {
+  const seen = {};
+  return splitFieldTripList_(value)
+    .map(normalizeGradeKey_)
+    .filter(grade => {
+      if (!grade || seen[grade]) return false;
+      seen[grade] = true;
+      return true;
+    });
+}
+
+function normalizeFieldTripRow_(row) {
+  return {
+    eventId: String(row.Event_ID || '').trim(),
+    name: String(row.Name || '').trim(),
+    date: normalizeDateKey_(row.Date),
+    start: timeToDisplay_(row.Start),
+    end: timeToDisplay_(row.End),
+    grades: normalizeFieldTripGrades_(row.Grades),
+    staffNames: splitFieldTripList_(row.Staff),
+    notes: String(row.Notes || '').trim()
+  };
+}
+
+function getFieldTripsInRange_(startDate, endDate) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss.getSheetByName('Field Trips')) return [];
+
+  const start = normalizeDateKey_(startDate);
+  const end = normalizeDateKey_(endDate || startDate);
+  return readSheetObjects_('Field Trips')
+    .map(normalizeFieldTripRow_)
+    .filter(row => row.eventId && row.date && (!start || row.date >= start) && (!end || row.date <= end))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start) || a.name.localeCompare(b.name));
+}
+
+function getFieldTripsForDate_(date) {
+  const key = normalizeDateKey_(date);
+  return getFieldTripsInRange_(key, key);
+}
+
+function saveFieldTrip_(payload) {
+  payload = payload || {};
+  const date = normalizeDateKey_(payload.date);
+  const name = String(payload.name || '').trim();
+  const start = timeToDisplay_(payload.start);
+  const end = timeToDisplay_(payload.end);
+  const grades = normalizeFieldTripGrades_(payload.grades);
+  const staffNames = splitFieldTripList_(payload.staffNames || payload.staff);
+  const notes = String(payload.notes || '').trim();
+
+  if (!date) throw new Error('Choose a valid field trip date.');
+  if (!name) throw new Error('Enter a field trip name.');
+  if (!start || !end) throw new Error('Enter both the field trip start and end time.');
+  const startMinutes = displayTimeToMinutes_(start);
+  const endMinutes = displayTimeToMinutes_(end);
+  if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) {
+    throw new Error('Field trip end time must be after the start time.');
+  }
+  if (!grades.length) throw new Error('Choose at least one student grade for the field trip.');
+  if (!staffNames.length) throw new Error('Choose at least one staff member going on the field trip.');
+
+  const sheet = ensureFieldTripsSheet_();
+  const headers = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0].map(h => String(h || '').trim());
+  const eventIdCol = findColumnByAliases_(headers, HEADER_ALIASES['Field Trips'].Event_ID);
+  if (eventIdCol === -1) throw new Error('Field Trips sheet is missing Event_ID.');
+
+  let eventId = String(payload.eventId || '').trim();
+  if (!eventId) {
+    eventId = 'FT-' + date.replace(/-/g, '') + '-' + Utilities.getUuid().slice(0, 8).toUpperCase();
+  }
+
+  const values = sheet.getDataRange().getValues();
+  let targetRow = -1;
+  for (let r = 1; r < values.length; r++) {
+    if (String(values[r][eventIdCol] || '').trim() === eventId) {
+      targetRow = r + 1;
+      break;
+    }
+  }
+  if (targetRow === -1) targetRow = sheet.getLastRow() + 1;
+
+  setSheetRowObject_(sheet, targetRow, headers, HEADER_ALIASES['Field Trips'], {
+    Event_ID: eventId,
+    Name: name,
+    Date: date,
+    Start: start,
+    End: end,
+    Grades: grades.join(' | '),
+    Staff: staffNames.join(' | '),
+    Notes: notes
+  });
+
+  return normalizeFieldTripRow_({
+    Event_ID: eventId,
+    Name: name,
+    Date: date,
+    Start: start,
+    End: end,
+    Grades: grades.join(' | '),
+    Staff: staffNames.join(' | '),
+    Notes: notes
+  });
+}
+
+function deleteFieldTrip_(eventId) {
+  const id = String(eventId || '').trim();
+  if (!id) throw new Error('No field trip ID was provided.');
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Field Trips');
+  if (!sheet || sheet.getLastRow() < 2) return { deleted: false, eventId: id };
+
+  const headers = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0].map(h => String(h || '').trim());
+  const eventIdCol = findColumnByAliases_(headers, HEADER_ALIASES['Field Trips'].Event_ID);
+  if (eventIdCol === -1) throw new Error('Field Trips sheet is missing Event_ID.');
+
+  const values = sheet.getDataRange().getValues();
+  for (let r = 1; r < values.length; r++) {
+    if (String(values[r][eventIdCol] || '').trim() === id) {
+      sheet.deleteRow(r + 1);
+      return { deleted: true, eventId: id };
+    }
+  }
+  return { deleted: false, eventId: id };
+}
 
 function getCoverageStaffSheetName_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
