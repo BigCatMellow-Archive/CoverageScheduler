@@ -63,6 +63,7 @@ const HEADER_ALIASES = {
   'Coverage Output': {
     Date: ['Date'],
     Day: ['Day'],
+    Event_ID: ['Event_ID', 'Event ID', 'Field_Trip_ID', 'Field Trip ID'],
     Start: ['Start'],
     End: ['End'],
     Absent_Staff: ['Absent_Staff'],
@@ -80,6 +81,7 @@ const HEADER_ALIASES = {
   '_Preview': {
     Date: ['Date'],
     Day: ['Day'],
+    Event_ID: ['Event_ID', 'Event ID', 'Field_Trip_ID', 'Field Trip ID'],
     Start: ['Start'],
     End: ['End'],
     Absent_Staff: ['Absent_Staff'],
@@ -970,7 +972,11 @@ function generateCoveragePreview(payload) {
       role: row.role,
       allDay: row.canCoverAllDay,
       activeToday: !!row.activeToday,
-      fieldTripOnly: !!row.fieldTripOnly
+      fieldTripOnly: !!row.fieldTripOnly,
+      fieldTripEvents: (row.fieldTripEvents || []).map(event => ({
+        eventId: event.eventId,
+        name: event.name
+      }))
     }))
   };
 }
@@ -1474,6 +1480,7 @@ function makePlanRow_(date, day, block, candidate, coverageMode, status, notes) 
   return {
     Date: date,
     Day: day,
+    Event_ID: block.fieldTripEventId || '',
     Start: minutesToDisplay_(block.startMinutes),
     End: minutesToDisplay_(block.endMinutes),
     Absent_Staff: block.staffName,
@@ -1618,13 +1625,17 @@ function getFieldTripCoverageStaffForDate_(date, day) {
     activeCoverageStaff,
     configuredCoverageStaff
   )
-    .filter(candidate => candidate.fieldTripOnly)
+    .filter(candidate => (candidate.fieldTripEvents || []).length)
     .map(candidate => ({
       name: candidate.name,
       role: candidate.role,
       tier: candidate.tier,
       activeToday: candidate.activeToday,
-      fieldTripOnly: true
+      fieldTripOnly: !!candidate.fieldTripOnly,
+      fieldTripEvents: (candidate.fieldTripEvents || []).map(event => ({
+        eventId: event.eventId,
+        name: event.name
+      }))
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

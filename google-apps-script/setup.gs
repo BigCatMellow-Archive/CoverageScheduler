@@ -74,6 +74,7 @@ const SHEET_SCHEMAS = {
     headers: [
       'Date',
       'Day',
+      'Event_ID',
       'Start',
       'End',
       'Absent_Staff',
@@ -99,6 +100,7 @@ const SHEET_SCHEMAS = {
     headers: [
       'Date',
       'Day',
+      'Event_ID',
       'Start',
       'End',
       'Absent_Staff',
