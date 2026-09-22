@@ -46,6 +46,7 @@ function doGet() {
   output.append(getSchoolThemeCss_());
   output.append(getWorkingOverlayUi_());
   output.append(getAbsenceRangeUi_());
+  output.append(getFieldTripUi_());
   output.append(getHandoutOpenLinkUi_());
 
   return output
@@ -172,6 +173,8 @@ function getWorkingOverlayUi_() {
     "    webSaveAbsences:['Saving absences…','Updating the selected day.'],",
     "    webSaveAbsenceRange:['Saving absence dates…','Adding the absence to each selected school day.'],",
     "    webSaveAbsenceGroupRange:['Saving group absence…','Adding each selected staff member and preparing coverage.'],",
+    "    webSaveFieldTrip:['Saving field trip…','Updating the event and recalculating its scheduling context.'],",
+    "    webDeleteFieldTrip:['Removing field trip…','Deleting the event from the calendar.'],",
     "    webSaveCoverageStaff:['Saving coverage staff…','Updating the coverage team.'],",
     "    webDeleteCoverageStaff:['Removing coverage staff…','Updating the coverage team.'],",
     "    webToggleCoverageStaff:['Updating availability…','Saving the daily availability change.'],",
@@ -636,6 +639,46 @@ function webSaveAbsenceGroupRange(payload) {
 }
 
 
+function webSaveFieldTrip(payload) {
+  ensureCoverageWorkbookReadyForWeb_();
+  return makeWebSafe_(saveFieldTrip_(payload || {}));
+}
+
+function webDeleteFieldTrip(payload) {
+  ensureCoverageWorkbookReadyForWeb_();
+  payload = payload || {};
+  return makeWebSafe_(deleteFieldTrip_(payload.eventId));
+}
+
+function webGetCalendarData(payload) {
+  ensureCoverageWorkbookReadyForWeb_();
+  payload = payload || {};
+  const startDate = normalizeDateKey_(payload.startDate);
+  const endDate = normalizeDateKey_(payload.endDate || payload.startDate);
+
+  if (!startDate || !endDate) throw new Error('Calendar requires a valid date range.');
+  if (endDate < startDate) throw new Error('Calendar end date must be after its start date.');
+
+  const fieldTrips = getFieldTripsInRange_(startDate, endDate);
+  const absences = readSheetObjects_('Daily Absences')
+    .map(row => ({
+      date: normalizeDateKey_(row.Date),
+      staffName: String(row.Staff_Name || '').trim(),
+      absenceType: String(row.Absence_Type || 'Full Day').trim(),
+      start: timeToDisplay_(row.Start_Override),
+      end: timeToDisplay_(row.End_Override),
+      notes: String(row.Notes || '').trim()
+    }))
+    .filter(row => row.date && row.date >= startDate && row.date <= endDate && row.staffName);
+
+  return makeWebSafe_({
+    startDate: startDate,
+    endDate: endDate,
+    fieldTrips: fieldTrips,
+    absences: absences
+  });
+}
+
 function webSaveAbsences(payload) {
   ensureCoverageWorkbookReadyForWeb_();
   return replaceDailyAbsences(payload || {});
@@ -814,6 +857,7 @@ function getSidebarBootstrap(payload) {
       : getAllSchedulableStaff_(dayCode),
     allCoverageStaff: getAllCoverageStaff_(today, dayCode),
     currentAbsences: getDailyAbsencesForDate_(today, dayCode),
+    currentFieldTrips: getFieldTripsForDate_(today),
     currentPreview: getLatestPreview_(today, dayCode),
     config: getConfigMap_()
   };
