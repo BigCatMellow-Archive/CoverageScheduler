@@ -394,6 +394,7 @@ function generateCoveragePreview(payload) {
   const needsByTeacher = buildCoverageNeedsByTeacher_(absences, teacherSchedule, day);
 
   const state = makeEmptyState_();
+  state.absencesByCandidate = buildAbsenceWindowsByStaff_(absences);
   const planRows = [];
   const summary = {
     totalAbsentStaff: 0,
@@ -720,6 +721,7 @@ function candidateCanCoverAllBlocks_(candidate, absentName, blocks, teacherSched
 function candidateCanCoverBlock_(candidate, absentName, block, teacherSchedule, day, state, config) {
   if (!candidate || !candidate.name) return false;
   if (!candidate.activeToday) return false;
+  if (candidateIsAbsentForBlock_(candidate.name, block, state)) return false;
   if (!candidateCanTakeTeacher_(candidate, absentName, 1, state, config)) return false;
   if (!block.emergencyOverride) {
     if (!matchesAllowedValue_(candidate.allowedAssignmentTypes, block.assignmentType)) return false;
@@ -868,8 +870,50 @@ function makeEmptyState_() {
   return {
     assignmentsByCandidate: {},
     blocksByCandidate: {},
-    teachersByCandidate: {}
+    teachersByCandidate: {},
+    absencesByCandidate: {}
   };
+}
+
+function buildAbsenceWindowsByStaff_(absences) {
+  const map = {};
+  (absences || []).forEach(absence => {
+    const name = String(absence.staffName || '').trim();
+    if (!name) return;
+
+    const type = String(absence.absenceType || 'Full Day').trim();
+    if (type === 'Full Day') {
+      map[name] = { allDay: true, startMinutes: null, endMinutes: null };
+      return;
+    }
+
+    map[name] = {
+      allDay: false,
+      startMinutes: displayTimeToMinutes_(absence.startOverride),
+      endMinutes: displayTimeToMinutes_(absence.endOverride)
+    };
+  });
+  return map;
+}
+
+function candidateIsAbsentForBlock_(candidateName, block, state) {
+  const absence = state && state.absencesByCandidate
+    ? state.absencesByCandidate[String(candidateName || '').trim()]
+    : null;
+
+  if (!absence) return false;
+  if (absence.allDay) return true;
+
+  // If a partial absence is malformed, fail closed rather than scheduling
+  // an absent person as coverage.
+  if (absence.startMinutes == null || absence.endMinutes == null) return true;
+
+  return timesOverlap_(
+    absence.startMinutes,
+    absence.endMinutes,
+    block.startMinutes,
+    block.endMinutes
+  );
 }
 
 function makePlanRow_(date, day, block, candidate, coverageMode, status, notes) {
