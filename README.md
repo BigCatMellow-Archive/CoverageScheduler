@@ -168,8 +168,12 @@ That means:
 - Mike's 2nd-grade classes during the trip are treated as cancelled because those students are away.
 - Mike's 1st-grade classes still happen and become normal coverage-plan rows.
 - Steve's 2nd-grade class during the trip is also treated as cancelled, so that block becomes temporary coverage availability.
+- Only staff who teach the trip grade and are staying at school enter the field-trip coverage pool.
 - Steve is preferred for Mike's overlapping 1st-grade coverage before an unrelated substitute when the times fit.
-- If Steve has a usable planning or break block during the trip, that can also be used.
+- A cancelled 2nd-grade class can be used directly for coverage.
+- A planning period can be used when the existing schedule marks it cover-eligible.
+- A break can be moved only when the scheduler can reserve enough time inside another cancelled trip-grade class as Steve's replacement break. That replacement break is then blocked from further coverage assignments.
+- Every field-trip assignment records why the teacher is available, such as **2nd-grade class cancelled by trip** or **break moved from 10:00–11:00 to 11:00–12:00 because the 2nd-grade class is cancelled**.
 - Steve's other classes that are still happening keep him unavailable.
 - If the field-trip pool cannot cover a block, the scheduler falls back to the normal Coverage Staff pool.
 - The finished result appears in the normal coverage plan with a specific person assigned to each remaining class, or **Unfilled** if no eligible person exists.
