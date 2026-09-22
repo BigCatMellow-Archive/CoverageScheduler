@@ -62,6 +62,7 @@ const SHEET_SCHEMAS = {
       'Event_ID',
       'Name',
       'Date',
+      'End_Date',
       'Start',
       'End',
       'Grades',
