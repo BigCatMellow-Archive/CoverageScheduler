@@ -168,6 +168,7 @@ function getWorkingOverlayUi_() {
     "    webGenerateCoverage:['Generating coverage plan…','Matching schedules and available coverage staff.'],",
     "    webCreateHandout:['Building handout…','Creating and formatting the Google Doc.'],",
     "    webSaveCoverage:['Saving coverage plan…','Writing the plan to Coverage Output.'],",
+    "    webSaveCoverageAndCreateHandout:['Saving plan & building handout…','Writing Coverage Output and creating the Google Doc from the same plan.'],",
     "    webSaveAbsences:['Saving absences…','Updating the selected day.'],",
     "    webSaveAbsenceRange:['Saving absence dates…','Adding the absence to each selected school day.'],",
     "    webSaveAbsenceGroupRange:['Saving group absence…','Adding each selected staff member and preparing coverage.'],",
@@ -451,14 +452,24 @@ function getHandoutOpenLinkUi_() {
     '.notif .handout-open:hover{background:#14532d}',
     '</style>',
     '<script>',
-    'handout = async function(){',
+    'saveAndHandout = async function(){',
     '  try{',
-    "    const r=await gas('webCreateHandout',{});",
+    "    const r=await gas('webSaveCoverageAndCreateHandout',S.plan);",
     "    const n=$('notif');",
-    "    const name=(r&&r.name)?r.name:'Google Doc';",
-    "    const url=(r&&r.url)?r.url:'';",
-    "    n.className='notif ok';",
-    "    n.innerHTML='✓ Handout created: '+esc(name)+(url?' <a class=\"handout-open\" href=\"'+esc(url)+'\" target=\"_blank\" rel=\"noopener noreferrer\">Open Handout ↗</a>':'')+'<button onclick=\"this.parentElement.classList.add(\\\'hidden\\\')\">×</button>';",
+    "    const saved=(r&&r.savedRows)||S.plan.length;",
+    "    const handout=r&&r.handout?r.handout:null;",
+    "    const name=handout&&handout.name?handout.name:'Google Doc';",
+    "    const url=handout&&handout.url?handout.url:'';",
+    "    if(handout){",
+    "      n.className='notif ok';",
+    "      n.innerHTML='✓ Saved '+saved+' row'+(saved===1?'':'s')+' and created '+esc(name)+'.'+(url?' <a class=\"handout-open\" href=\"'+esc(url)+'\" target=\"_blank\" rel=\"noopener noreferrer\">Open Handout ↗</a>':'')+'<button onclick=\"this.parentElement.classList.add(\\\'hidden\\\')\">×</button>';",
+    "    }else if(r&&r.handoutError){",
+    "      n.className='notif warn';",
+    "      n.innerHTML='Saved '+saved+' row'+(saved===1?'':'s')+', but the handout could not be created: '+esc(r.handoutError)+'<button onclick=\"this.parentElement.classList.add(\\\'hidden\\\')\">×</button>';",
+    "    }else{",
+    "      n.className='notif warn';",
+    "      n.innerHTML='Saved '+saved+' row'+(saved===1?'':'s')+'. No assigned coverage was available for a handout.<button onclick=\"this.parentElement.classList.add(\\\'hidden\\\')\">×</button>';",
+    "    }",
     "    n.classList.remove('hidden');",
     "    clearTimeout(flash.t);",
     '  }catch(e){fail(e)}',
@@ -466,7 +477,6 @@ function getHandoutOpenLinkUi_() {
     '</script>'
   ].join('\n');
 }
-
 function activateCoverageSpreadsheetForWeb_() {
   const spreadsheetId = PropertiesService.getScriptProperties()
     .getProperty(COVERAGE_SPREADSHEET_PROPERTY);
@@ -720,6 +730,36 @@ function webDeleteCoverageStaff(payload) {
 function webSaveCoverage(rows) {
   ensureCoverageWorkbookReadyForWeb_();
   return saveCoveragePlan({ rows: rows || [] });
+}
+
+function webSaveCoverageAndCreateHandout(rows) {
+  ensureCoverageWorkbookReadyForWeb_();
+
+  const planRows = rows || [];
+  const saveResult = saveCoveragePlan({ rows: planRows });
+  const assignedRows = planRows.filter(row =>
+    String(row.Status || '').trim() === 'Assigned' &&
+    String(row.Assigned_Coverage || '').trim()
+  );
+
+  let handout = null;
+  let handoutError = '';
+
+  if (assignedRows.length) {
+    try {
+      handout = createCoverageHandoutDocWide_(assignedRows, saveResult.date, saveResult.day);
+    } catch (error) {
+      handoutError = error && error.message ? error.message : String(error || 'Unknown handout error');
+    }
+  }
+
+  return makeWebSafe_({
+    date: saveResult.date,
+    day: saveResult.day,
+    savedRows: saveResult.savedRows,
+    handout: handout,
+    handoutError: handoutError
+  });
 }
 
 function webCreateHandout() {
