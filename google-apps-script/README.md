@@ -11,6 +11,7 @@ For a complete first-time-user walkthrough, start with [`docs/wiki/Home.md`](../
 - `code.gs` — web-app entry point, spreadsheet menu, workbook binding, and server wrappers
 - `web-ui-data.gs` — Staff List roster adapter and coverage-team create/edit/remove functions
 - `handout.gs` — full-width, print-friendly Google Docs coverage handouts
+- `field-trip-ui.gs` — field trip editor, monthly calendar, and event UI
 - `index.html` — full-page Coverage Scheduler interface
 - `teacher-schedule-adapter.gs` — preserves and validates the existing Teacher Schedule source
 - `setup.gs` — managed workbook sheets, validation, and defaults
@@ -28,7 +29,7 @@ The preferred `Teacher Schedule` tab is:
 Teacher | Term | Day | Start | End | Class | Subject | Room
 ```
 
-The scheduler reads this sheet directly. `Start` and `End` are authoritative; fixed school periods are not required.
+The scheduler reads this sheet directly. `Start` and `End` are authoritative; fixed school periods are not required. Grade information is especially important for field trips because it determines which classes are cancelled and which staying teachers become temporarily available. Common forms such as `2`, `2nd Grade`, `Grade 2`, `PreK`, `Kindergarten`, and `Beg` are normalized by the scheduler.
 
 The web app uses a separate `Staff List` tab as the roster shown in **+ Add Absence**. Its required header is simply:
 
@@ -47,6 +48,7 @@ If `Staff List` does not exist or is empty, setup creates it and seeds unique te
    - `code.gs`
    - `web-ui-data.gs`
    - `handout.gs`
+   - `field-trip-ui.gs`
    - `teacher-schedule-adapter.gs`
    - `setup.gs`
    - `scheduler.gs`
@@ -71,7 +73,9 @@ You do **not** need to manually edit `Coverage Staff` for normal use. Open the w
 
 The web UI supports the normal workflow: choose a date, add/edit absences, create/edit/remove coverage staff, toggle daily coverage availability, generate the plan, inspect Timeline/Table/By Sub views, manually reassign blocks, then use **Save & Handout** to save the exact reviewed plan to `Coverage Output` and create the Google Docs handout from those same rows in one operation.
 
-For shared events such as field trips, use **+ Group Absence**. Select multiple staff members, choose the shared date or date range, and enter the common absence window. The app stores each selected person as a normal absence, so the existing scheduling engine automatically finds every overlapping class/duty block and assigns coverage without double-booking the same coverage person. Group absences use automatic assignment initially; individual blocks can still be manually reassigned after the plan is generated.
+Field trips are first-class events rather than ordinary group absences. Use **+ Field Trip** to choose the event date/time, student grade(s), and staff going on the trip. Use **Calendar** to see field trips and ordinary absences together and to reopen an event for editing.
+
+During generation, trip-grade classes are treated as cancelled while those students are away. Staff on the trip still need coverage for their other classes. Teachers staying behind whose trip-grade classes were cancelled become a temporary first-priority coverage pool; their released class blocks and usable planning/break blocks can cover the classes that remain. The scheduler falls back to normal Coverage Staff only when the field-trip pool cannot cover a block.
 
 ## Handouts
 

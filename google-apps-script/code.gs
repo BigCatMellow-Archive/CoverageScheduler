@@ -46,6 +46,7 @@ function doGet() {
   output.append(getSchoolThemeCss_());
   output.append(getWorkingOverlayUi_());
   output.append(getAbsenceRangeUi_());
+  output.append(getFieldTripUi_());
   output.append(getHandoutOpenLinkUi_());
 
   return output
@@ -171,7 +172,8 @@ function getWorkingOverlayUi_() {
     "    webSaveCoverageAndCreateHandout:['Saving plan & building handout…','Writing Coverage Output and creating the Google Doc from the same plan.'],",
     "    webSaveAbsences:['Saving absences…','Updating the selected day.'],",
     "    webSaveAbsenceRange:['Saving absence dates…','Adding the absence to each selected school day.'],",
-    "    webSaveAbsenceGroupRange:['Saving group absence…','Adding each selected staff member and preparing coverage.'],",
+    "    webSaveFieldTrip:['Saving field trip…','Updating the event and recalculating its scheduling context.'],",
+    "    webDeleteFieldTrip:['Removing field trip…','Deleting the event from the calendar.'],",
     "    webSaveCoverageStaff:['Saving coverage staff…','Updating the coverage team.'],",
     "    webDeleteCoverageStaff:['Removing coverage staff…','Updating the coverage team.'],",
     "    webToggleCoverageStaff:['Updating availability…','Saving the daily availability change.'],",
@@ -244,18 +246,6 @@ function getAbsenceRangeUi_() {
     '.absence-range-error{color:var(--error,#dc2626)!important}',
     '.add-row{display:flex;gap:7px;flex-wrap:wrap}',
     '.add-row .add-btn{width:auto;flex:1 1 120px}',
-    '.group-absence-btn{margin-left:0}',
-    '.group-absence-box{padding:11px;background:#f7f8fb;border:1px solid var(--border,#e2e5eb);border-radius:var(--radius-sm,10px)}',
-    '.group-absence-search{margin-bottom:8px}',
-    '.group-absence-list{max-height:210px;overflow:auto;border:1px solid #d7dce5;border-radius:8px;background:#fff}',
-    '.group-absence-row{display:flex;align-items:flex-start;gap:8px;padding:8px 9px;border-bottom:1px solid #edf0f4;cursor:pointer}',
-    '.group-absence-row:last-child{border-bottom:0}',
-    '.group-absence-row:hover{background:#f7f8fb}',
-    '.group-absence-row input{margin-top:2px;accent-color:var(--primary,#214289)}',
-    '.group-absence-name{font-size:12px;font-weight:750;color:var(--text,#1f2937)}',
-    '.group-absence-sub{font-size:10px;color:var(--text-muted,#6b7280);margin-top:1px}',
-    '.group-absence-hint{margin-top:7px}',
-    '.group-auto-hint{margin:-2px 0 12px;padding:8px 10px;border-radius:8px;background:rgba(33,66,137,.06);color:var(--text-muted,#6b7280);font-size:10px;line-height:1.4}',
     '</style>',
     '<script>',
     '(function(){',
@@ -267,81 +257,6 @@ function getAbsenceRangeUi_() {
     "  range.className='fg absence-range-box';",
     "  range.innerHTML='<label class=\"fl\">Dates</label><div class=\"f-row\"><div class=\"fg\"><label class=\"fl\" style=\"text-transform:none;letter-spacing:0\">From</label><input id=\"absenceDateFrom\" type=\"date\" class=\"fi\"></div><div class=\"fg\"><label class=\"fl\" style=\"text-transform:none;letter-spacing:0\">Through</label><input id=\"absenceDateThrough\" type=\"date\" class=\"fi\"></div></div><div class=\"absence-range-presets\"><button type=\"button\" id=\"absenceOneDay\">This day only</button><button type=\"button\" id=\"absenceFiveDays\">5 school days</button></div><div id=\"absenceDateHint\" class=\"hint\"></div>';",
     '  staffGroup.parentNode.insertBefore(range,staffGroup.nextSibling);',
-    '',
-    "  var addAbsenceBtn=document.getElementById('addAbsenceBtn');",
-    "  var groupButton=document.createElement('button');",
-    "  groupButton.id='addGroupAbsenceBtn';",
-    "  groupButton.type='button';",
-    "  groupButton.className='add-btn group-absence-btn';",
-    "  groupButton.textContent='+ Group Absence';",
-    "  if(addAbsenceBtn&&addAbsenceBtn.parentNode)addAbsenceBtn.parentNode.appendChild(groupButton);",
-    '',
-    "  var groupBox=document.createElement('div');",
-    "  groupBox.id='groupAbsenceBox';",
-    "  groupBox.className='fg group-absence-box hidden';",
-    `  groupBox.innerHTML='<label class="fl">Staff Members</label><input id="groupAbsenceSearch" class="fi group-absence-search" placeholder="Search staff…"><div id="groupAbsenceList" class="group-absence-list"></div><div id="groupAbsenceHint" class="hint group-absence-hint">Choose everyone who will be away at the same time.</div>';`,
-    '  staffGroup.parentNode.insertBefore(groupBox,staffGroup);',
-    "  var preferred=document.getElementById('preferredCoverage');",
-    "  var preferredGroup=preferred?preferred.closest('.fg'):null;",
-    "  var autoHint=document.createElement('div');",
-    "  autoHint.id='groupAutoCoverageHint';",
-    "  autoHint.className='group-auto-hint hidden';",
-    "  autoHint.textContent='Coverage is auto-assigned separately for each affected block so the same person cannot be double-booked. You can manually reassign blocks after generating the plan.';",
-    "  if(preferredGroup&&preferredGroup.parentNode)preferredGroup.parentNode.insertBefore(autoHint,preferredGroup.nextSibling);",
-    "  var groupMode=false;",
-    "  var groupSelected={};",
-    '',
-    "  function renderGroupStaff(){",
-    "    var list=document.getElementById('groupAbsenceList');",
-    "    if(!list)return;",
-    "    var q=String((document.getElementById('groupAbsenceSearch')||{}).value||'').trim().toLowerCase();",
-    "    var rows=(S.allStaff||[]).filter(function(s){var hay=(String(s.name||'')+' '+String(s.subject||'')+' '+String(s.scheduleName||'')).toLowerCase();return !q||hay.indexOf(q)!==-1;});",
-    `    if(!rows.length){list.innerHTML='<div class="hint" style="padding:10px">No matching staff.</div>';return;}`,
-    `    list.innerHTML=rows.map(function(s){var value=String(s.scheduleName||s.name||'');var label=String(s.name||value);var sub=String(s.subject||'');return '<label class="group-absence-row"><input type="checkbox" data-group-staff="'+esc(value)+'" '+(groupSelected[value]?'checked':'')+'><span><div class="group-absence-name">'+esc(label)+'</div>'+(sub?'<div class="group-absence-sub">'+esc(sub)+'</div>':'')+'</span></label>';}).join('');`,
-    "    updateGroupHint();",
-    "  }",
-    "  function updateGroupHint(){",
-    "    var count=Object.keys(groupSelected).filter(function(k){return groupSelected[k];}).length;",
-    "    var hint=document.getElementById('groupAbsenceHint');",
-    "    if(hint)hint.textContent=count?count+' staff member'+(count===1?'':'s')+' selected.':'Choose everyone who will be away at the same time.';",
-    "  }",
-    "  function selectedGroupStaff(){return Object.keys(groupSelected).filter(function(k){return groupSelected[k];});}",
-    "  function setGroupMode(on){",
-    "    groupMode=!!on&&!S.editingAbsence;",
-    "    staffGroup.classList.toggle('hidden',groupMode);",
-    "    groupBox.classList.toggle('hidden',!groupMode);",
-    "    if(preferredGroup)preferredGroup.classList.toggle('hidden',groupMode);",
-    "    autoHint.classList.toggle('hidden',!groupMode);",
-    "    var title=document.getElementById('absenceModalTitle');",
-    "    var sub=document.querySelector('#absenceModal .m-sub');",
-    "    var save=document.getElementById('saveAbsenceBtn');",
-    "    if(groupMode){",
-    "      if(title)title.textContent='Add Group Absence';",
-    "      if(sub)sub.textContent='Choose multiple staff members who will be away for the same date and time.';",
-    "      if(save)save.textContent='Save Group Absence';",
-    "      if(preferred)preferred.value='';",
-    "      renderGroupStaff();",
-    "    }else{",
-    "      if(save)save.textContent='Save Absence';",
-    "      if(!S.editingAbsence){",
-    "        if(title)title.textContent='Add Absence';",
-    "        if(sub)sub.textContent='Choose a staff member, date or range, and the part of the day they will miss.';",
-    "      }",
-    "    }",
-    "  }",
-    "  document.getElementById('groupAbsenceSearch').addEventListener('input',renderGroupStaff);",
-    "  document.getElementById('groupAbsenceList').addEventListener('change',function(e){",
-    "    var box=e.target.closest('[data-group-staff]');",
-    "    if(!box)return;",
-    "    groupSelected[box.dataset.groupStaff]=box.checked;",
-    "    updateGroupHint();",
-    "  });",
-    "  groupButton.addEventListener('click',function(){",
-    "    groupSelected={};",
-    "    openAbsence(null);",
-    "    setGroupMode(true);",
-    "    if(typeof setAbsenceType==='function')setAbsenceType('Partial Day');",
-    "  });",
     '',
     '  function parseDate(value){',
     "    var p=String(value||'').split('-').map(Number);",
@@ -374,7 +289,6 @@ function getAbsenceRangeUi_() {
     '    var count=schoolDayCount(from,through);',
     "    hint.textContent=count+' school day'+(count===1?'':'s')+' selected. Weekends are skipped automatically.';",
     '  }',
-    '',
     "  document.getElementById('absenceDateFrom').addEventListener('change',function(){",
     "    var through=document.getElementById('absenceDateThrough');",
     '    if(!through.value||through.value<this.value)through.value=this.value;',
@@ -399,7 +313,6 @@ function getAbsenceRangeUi_() {
     '  openAbsence=function(staffName){',
     '    baseOpenAbsence(staffName);',
     '    var editing=!!S.editingAbsence;',
-    '    setGroupMode(false);',
     "    range.classList.toggle('hidden',editing);",
     "    var sub=document.querySelector('#absenceModal .m-sub');",
     "    if(sub)sub.textContent=editing?'Edit this absence for the selected day.':'Choose a staff member, date or range, and the part of the day they will miss.';",
@@ -415,20 +328,16 @@ function getAbsenceRangeUi_() {
     '  saveAbsence=async function(){',
     '    if(S.editingAbsence)return baseSaveAbsence();',
     "    var staffName=document.getElementById('absenceStaff').value;",
-    "    var groupStaff=groupMode?selectedGroupStaff():[];",
-    "    if(groupMode&&!groupStaff.length){flash('Choose at least one staff member.','warn');return;}",
-    "    if(!groupMode&&!staffName){flash('Choose a staff member.','warn');return;}",
+    "    if(!staffName){flash('Choose a staff member.','warn');return;}",
     "    var type=document.getElementById('absenceTypes').dataset.selected||'Full Day';",
-    "    var next={staffName:staffName,absenceType:type==='Emergency'?'Full Day':type,allDay:type!=='Partial Day',emergency:type==='Emergency',startOverride:type==='Partial Day'?document.getElementById('absenceStart').value.trim():'',endOverride:type==='Partial Day'?document.getElementById('absenceEnd').value.trim():'',preferredCoverage:groupMode?'':document.getElementById('preferredCoverage').value,notes:document.getElementById('absenceNotes').value.trim()};",
+    "    var next={staffName:staffName,absenceType:type==='Emergency'?'Full Day':type,allDay:type!=='Partial Day',emergency:type==='Emergency',startOverride:type==='Partial Day'?document.getElementById('absenceStart').value.trim():'',endOverride:type==='Partial Day'?document.getElementById('absenceEnd').value.trim():'',preferredCoverage:document.getElementById('preferredCoverage').value,notes:document.getElementById('absenceNotes').value.trim()};",
     "    if(type==='Partial Day'&&(!next.startOverride||!next.endOverride)){flash('Enter both a start and end time for a partial-day absence.','warn');return;}",
     "    var startDate=document.getElementById('absenceDateFrom').value;",
     "    var endDate=document.getElementById('absenceDateThrough').value||startDate;",
     "    if(!startDate||!endDate){flash('Choose the absence date.','warn');return;}",
     "    if(endDate<startDate){flash('Through date must be the same as or after From.','warn');return;}",
     '    try{',
-    "      var method=groupMode?'webSaveAbsenceGroupRange':'webSaveAbsenceRange';",
-    "      var payload=groupMode?{startDate:startDate,endDate:endDate,currentDate:S.date,staffNames:groupStaff,absence:next}:{startDate:startDate,endDate:endDate,currentDate:S.date,absence:next};",
-    "      var result=await gas(method,payload);",
+    "      var result=await gas('webSaveAbsenceRange',{startDate:startDate,endDate:endDate,currentDate:S.date,absence:next});",
     "      closeModal('absenceModal');",
     '      if(result&&result.currentDateUpdated){',
     '        S.absences=normalizeAbsences(result.currentAbsences||[]);',
@@ -436,15 +345,13 @@ function getAbsenceRangeUi_() {
     '        renderAll();',
     '      }',
     "      var count=(result&&result.count)||schoolDayCount(startDate,endDate);",
-    "      if(groupMode){var staffCount=(result&&result.staffCount)||groupStaff.length;flash('Group absence saved for '+staffCount+' staff member'+(staffCount===1?'':'s')+' across '+count+' school day'+(count===1?'':'s')+'.');}",
-    "      else{flash('Absence saved for '+count+' school day'+(count===1?'':'s')+'.');}",
+    "      flash('Absence saved for '+count+' school day'+(count===1?'':'s')+'.');",
     '    }catch(e){fail(e)}',
     '  };',
     '})();',
     '</script>'
   ].join('\n');
 }
-
 function getHandoutOpenLinkUi_() {
   return [
     '<style>',
@@ -564,77 +471,45 @@ function webGetBootstrap(payload) {
   return safe;
 }
 
-function webSaveAbsenceGroupRange(payload) {
+function webSaveFieldTrip(payload) {
   ensureCoverageWorkbookReadyForWeb_();
-  payload = payload || {};
-
-  const start = parseAbsenceRangeDate_(payload.startDate);
-  const end = parseAbsenceRangeDate_(payload.endDate || payload.startDate);
-  const absence = payload.absence || {};
-  const seen = {};
-  const staffNames = (payload.staffNames || [])
-    .map(name => String(name || '').trim())
-    .filter(name => {
-      if (!name || seen[name]) return false;
-      seen[name] = true;
-      return true;
-    });
-
-  if (!start || !end) throw new Error('Choose a valid absence date or date range.');
-  if (end < start) throw new Error('Through date must be the same as or after From.');
-  if (!staffNames.length) throw new Error('Choose at least one staff member.');
-
-  const calendarDays = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
-  if (calendarDays > 63) {
-    throw new Error('Please keep one group absence entry to 63 calendar days or fewer.');
-  }
-
-  const selected = {};
-  staffNames.forEach(name => { selected[name] = true; });
-
-  const timeZone = Session.getScriptTimeZone();
-  const savedDates = [];
-  const cursor = new Date(start.getTime());
-
-  while (cursor <= end) {
-    const weekday = cursor.getDay();
-    if (weekday !== 0 && weekday !== 6) {
-      const dateKey = Utilities.formatDate(cursor, timeZone, 'yyyy-MM-dd');
-      const day = guessDayCodeFromDate_(dateKey);
-      if (day) {
-        let current = getDailyAbsencesForDate_(dateKey, day) || [];
-        current = current.filter(row => !selected[String(row.staffName || '').trim()]);
-        staffNames.forEach(name => {
-          current.push(Object.assign({}, absence, {
-            staffName: name,
-            preferredCoverage: ''
-          }));
-        });
-        replaceDailyAbsences({ date: dateKey, day: day, absences: current });
-        savedDates.push(dateKey);
-      }
-    }
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  if (!savedDates.length) {
-    throw new Error('That range does not contain a Monday–Friday school day.');
-  }
-
-  const currentDate = String(payload.currentDate || '').trim();
-  const currentDateUpdated = savedDates.indexOf(currentDate) !== -1;
-  const currentDay = currentDateUpdated ? guessDayCodeFromDate_(currentDate) : '';
-
-  return makeWebSafe_({
-    count: savedDates.length,
-    staffCount: staffNames.length,
-    totalEntries: savedDates.length * staffNames.length,
-    savedDates: savedDates,
-    currentDateUpdated: currentDateUpdated,
-    currentAbsences: currentDateUpdated ? getDailyAbsencesForDate_(currentDate, currentDay) : []
-  });
+  return makeWebSafe_(saveFieldTrip_(payload || {}));
 }
 
+function webDeleteFieldTrip(payload) {
+  ensureCoverageWorkbookReadyForWeb_();
+  payload = payload || {};
+  return makeWebSafe_(deleteFieldTrip_(payload.eventId));
+}
+
+function webGetCalendarData(payload) {
+  ensureCoverageWorkbookReadyForWeb_();
+  payload = payload || {};
+  const startDate = normalizeDateKey_(payload.startDate);
+  const endDate = normalizeDateKey_(payload.endDate || payload.startDate);
+
+  if (!startDate || !endDate) throw new Error('Calendar requires a valid date range.');
+  if (endDate < startDate) throw new Error('Calendar end date must be after its start date.');
+
+  const fieldTrips = getFieldTripsInRange_(startDate, endDate);
+  const absences = readSheetObjects_('Daily Absences')
+    .map(row => ({
+      date: normalizeDateKey_(row.Date),
+      staffName: String(row.Staff_Name || '').trim(),
+      absenceType: String(row.Absence_Type || 'Full Day').trim(),
+      start: timeToDisplay_(row.Start_Override),
+      end: timeToDisplay_(row.End_Override),
+      notes: String(row.Notes || '').trim()
+    }))
+    .filter(row => row.date && row.date >= startDate && row.date <= endDate && row.staffName);
+
+  return makeWebSafe_({
+    startDate: startDate,
+    endDate: endDate,
+    fieldTrips: fieldTrips,
+    absences: absences
+  });
+}
 
 function webSaveAbsences(payload) {
   ensureCoverageWorkbookReadyForWeb_();
@@ -813,7 +688,9 @@ function getSidebarBootstrap(payload) {
       ? getWebStaffRoster_(dayCode)
       : getAllSchedulableStaff_(dayCode),
     allCoverageStaff: getAllCoverageStaff_(today, dayCode),
+    fieldTripCoverageStaff: getFieldTripCoverageStaffForDate_(today, dayCode),
     currentAbsences: getDailyAbsencesForDate_(today, dayCode),
+    currentFieldTrips: getFieldTripsForDate_(today),
     currentPreview: getLatestPreview_(today, dayCode),
     config: getConfigMap_()
   };

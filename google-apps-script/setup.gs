@@ -57,6 +57,18 @@ const SHEET_SCHEMAS = {
       'Preferred_Coverage'
     ]
   },
+  'Field Trips': {
+    headers: [
+      'Event_ID',
+      'Name',
+      'Date',
+      'Start',
+      'End',
+      'Grades',
+      'Staff',
+      'Notes'
+    ]
+  },
   'Coverage Output': {
     headers: [
       'Date',
@@ -124,7 +136,7 @@ const DEFAULT_CONFIG = [
 
 function setupCoverageWorkbook() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const desiredOrder = ['Teacher Schedule', 'Coverage Staff', 'Substitute Availability', 'Daily Absences', 'Coverage Output', 'Lists', 'Config', '_Preview'];
+  const desiredOrder = ['Teacher Schedule', 'Coverage Staff', 'Substitute Availability', 'Daily Absences', 'Field Trips', 'Coverage Output', 'Lists', 'Config', '_Preview'];
 
   desiredOrder.forEach((name, index) => {
     const schema = SHEET_SCHEMAS[name];

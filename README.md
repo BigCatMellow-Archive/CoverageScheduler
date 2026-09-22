@@ -21,12 +21,13 @@ The main interface is a full-page Google Apps Script web app. The spreadsheet re
 
 ## What the system does
 
-Coverage Scheduler combines four kinds of information:
+Coverage Scheduler combines five kinds of information:
 
 1. **Who is scheduled to be where** — from `Teacher Schedule`.
 2. **Who is absent and when** — entered through the web app and stored in `Daily Absences`.
-3. **Who can provide coverage** — managed through **+ Coverage Staff**.
-4. **The rules and limits for assigning coverage** — availability windows, tiers, restrictions, workload limits, and scheduler configuration.
+3. **Which field trips change the normal day** — stored as editable events in `Field Trips`.
+4. **Who can provide coverage** — managed through **+ Coverage Staff**, plus temporary teachers released by a field trip.
+5. **The rules and limits for assigning coverage** — availability windows, tiers, restrictions, workload limits, and scheduler configuration.
 
 When you click **Generate Plan**, the scheduler compares all of those pieces and builds a proposed coverage plan. It tries to avoid time conflicts, keep coverage practical, and use higher-priority coverage people before lower-priority options.
 
@@ -35,7 +36,8 @@ Generating a plan is a preview step. You can review and adjust the result before
 ### Main things you can do
 
 - Add a single full-day or partial-day absence.
-- Add several staff members at once with **+ Group Absence** for field trips, meetings, trainings, or other shared events.
+- Create and edit **Field Trips** with the staff going, student grade(s), date, and time.
+- View field trips and ordinary absences together in the monthly **Calendar**.
 - Add or edit substitutes, aides, teachers with free blocks, administrators, or other coverage people.
 - Mark coverage people available or unavailable for the selected day.
 - Limit who can cover certain grades, subjects, assignment types, or time windows.
@@ -70,6 +72,12 @@ You can choose:
 - **Emergency** — records the absence as an emergency so emergency fallback behavior can be considered by the scheduler.
 
 You can also add notes and, for a normal single-person absence, optionally specify preferred coverage.
+
+### Field trips on the selected day
+
+Field trips are separate from ordinary absences. Use **+ Field Trip** to create one, or **Calendar** to find and edit an existing event.
+
+A field trip is stored once rather than as several independent absence rows. The selected grade(s) and staff determine which classes disappear, which classes still need coverage, and which teachers staying behind become temporarily available.
 
 ### 3. Confirm the coverage team
 
@@ -141,24 +149,29 @@ The scheduler checks Jordan's schedule and only creates coverage needs for block
 
 The scheduler covers blocks that overlap that absence window. A class from 10:30–11:20 overlaps the absence and can require coverage; a class ending before 11:15 does not.
 
-### Example 3: Several teachers are going on a field trip
+### Example 3: A 2nd-grade field trip changes both coverage needs and available teachers
 
-**Situation:** Four teachers will be away from 9:30 AM until 2:15 PM.
+**Situation:** Mike is going on a 2nd-grade field trip from 9:00 AM until 2:00 PM. Mike teaches both 2nd grade and 1st grade. Steve is staying at school and normally teaches 2nd grade during part of that window.
 
-1. Click **+ Group Absence**.
-2. Select all four teachers.
-3. Choose the field-trip date.
-4. Leave the absence type as **Partial Day**.
-5. Enter **9:30 AM** through **2:15 PM**.
-6. Add a note such as `5th Grade Field Trip` if useful.
-7. Save the group absence.
-8. Click **Generate**.
+1. Click **+ Field Trip**.
+2. Name the event, such as `2nd Grade Field Trip`.
+3. Choose the date and trip times.
+4. Select **2** under **Students on Trip**.
+5. Select Mike and every other staff member going on the trip.
+6. Save the field trip.
+7. Click **Generate Plan**.
 
-The app creates a normal absence entry for each selected teacher, then the regular scheduling engine handles all of those coverage needs together.
+The scheduler changes the day before assigning coverage:
 
-This matters because the same substitute cannot be automatically assigned to two teachers at the same time. A teacher who is on the field trip is also blocked from being used as coverage during their own absence window, even if that teacher normally provides coverage during free blocks.
+- Mike's 2nd-grade classes during the trip are treated as cancelled because those students are away.
+- Mike's 1st-grade classes still happen and therefore need coverage.
+- Steve's 2nd-grade class during the trip is also treated as cancelled, so that block becomes temporary coverage availability.
+- Steve is preferred for field-trip coverage before an unrelated substitute when his released block fits.
+- If Steve has a usable planning or break block during the trip, that can also be used.
+- Steve's other classes that are still happening keep him unavailable.
+- If the field-trip pool cannot cover a block, the scheduler falls back to the normal Coverage Staff pool.
 
-Group absences start with automatic assignment rather than one shared preferred coverage person. After generating the plan, individual blocks can still be reassigned manually.
+Field trips have stable event IDs and can be edited as one event from the **Calendar**. Changing the staff, grade, date, or time changes the scheduling consequences the next time the plan is generated.
 
 ### Example 4: A substitute is only available in the morning
 
@@ -233,18 +246,20 @@ The scheduler is a practical heuristic, not a mathematical optimizer. It makes a
 
 In broad terms it:
 
-1. Reads the selected day's absences.
-2. Finds the absent person's scheduled blocks that require coverage.
-3. Applies partial-day time windows when present.
-4. Removes coverage candidates who are unavailable or ineligible.
-5. Prevents a coverage person from being assigned to overlapping blocks.
-6. Prevents someone who is themselves absent from being used as coverage during the overlapping absence window.
-7. Honors a manually preferred assignment for a normal single-person absence when one was explicitly selected.
-8. Gives harder-to-cover absences attention before easier ones.
-9. Tries a whole-day/whole-teacher assignment when configured to do so.
-10. Falls back to split coverage when allowed.
-11. Scores remaining candidates using tier, continuity, workload, and configured restrictions.
-12. Leaves a block **Unfilled** when no valid automatic candidate is available.
+1. Reads the selected day's ordinary absences and field trips.
+2. Removes field-trip-grade classes that will not happen because those students are away.
+3. Finds the remaining blocks that genuinely need coverage.
+4. Finds teachers staying behind whose field-trip-grade classes were cancelled and temporarily adds them to that event's coverage pool.
+5. Allows those affected teachers to use released class blocks and usable planning/break blocks during the trip.
+6. Prefers the event-specific field-trip pool for field-trip-created coverage needs before falling back to normal Coverage Staff.
+7. Keeps teachers unavailable while they are teaching any class that is still happening.
+8. Applies partial-day time windows and normal availability restrictions.
+9. Prevents a coverage person from being assigned to overlapping blocks.
+10. Prevents someone who is themselves absent or on the field trip from being used as coverage during that window.
+11. Honors a manually preferred assignment for a normal single-person absence when one was explicitly selected.
+12. Uses whole-day continuity for ordinary absences when configured, but schedules field-trip needs block-by-block first so released capacity is not wasted.
+13. Falls back to split coverage and then the normal coverage pool when needed.
+14. Leaves a block **Unfilled** when no valid automatic candidate is available.
 
 An **Unfilled** result is intentional information. It means the scheduler could not find a candidate that satisfied its current rules; it does not silently invent availability.
 
@@ -260,7 +275,8 @@ The web app is the normal operating interface, but all live data is stored in th
 | `Staff List` | Stable roster shown in absence pickers | Setup or administrator |
 | `Coverage Staff` | Coverage people and assignment rules | Web app |
 | `Substitute Availability` | Date-specific availability overrides | Web app / scheduler workflow |
-| `Daily Absences` | Absences for specific dates | Web app |
+| `Daily Absences` | Ordinary absences for specific dates | Web app |
+| `Field Trips` | One editable record per field trip: event ID, date/time, grades, staff, notes | Web app / Calendar |
 | `Coverage Output` | Final saved coverage assignments | Web app |
 | `Config` | Scheduler behavior settings | Advanced/admin use |
 | `Lists` | Validation/helper values | Setup routine |
@@ -413,6 +429,7 @@ google-apps-script/
   code.gs                       Web-app entry point, workbook binding, UI additions
   web-ui-data.gs                Staff List and Coverage Staff web actions
   handout.gs                    Google Docs coverage handouts
+  field-trip-ui.gs              Field trip editor, calendar, and event UI
   index.html                    Main full-page web interface
   teacher-schedule-adapter.gs  Teacher Schedule preservation/validation
   setup.gs                      Workbook schemas, setup, validation, defaults
