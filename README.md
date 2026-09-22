@@ -171,7 +171,7 @@ The scheduler changes the day before assigning coverage:
 - Steve's other classes that are still happening keep him unavailable.
 - If the field-trip pool cannot cover a block, the scheduler falls back to the normal Coverage Staff pool.
 
-Field trips have stable event IDs and can be edited as one event from the **Calendar**. Changing the staff, grade, dates, or times changes the scheduling consequences the next time the plan is generated.
+Field trips have stable event IDs and can be edited as one event from the **Calendar** or directly from the field-trip card in the daily coverage plan. The plan card shows the staff on the trip by name, teachers released to help because their trip-grade classes were cancelled, and the coverage assignment for each remaining class. Clicking a coverage line opens the normal manual reassignment editor. Changing the staff, grade, dates, or times changes the scheduling consequences the next time the plan is generated.
 
 ### Overnight and multi-day field trips
 
@@ -290,7 +290,7 @@ The web app is the normal operating interface, but all live data is stored in th
 | `Substitute Availability` | Date-specific availability overrides | Web app / scheduler workflow |
 | `Daily Absences` | Ordinary absences for specific dates | Web app |
 | `Field Trips` | One editable record per field trip: event ID, start/end dates and times, grades, staff, notes | Web app / Calendar |
-| `Coverage Output` | Final saved coverage assignments | Web app |
+| `Coverage Output` | Final saved coverage assignments, including the linked field-trip Event ID when applicable | Web app |
 | `Config` | Scheduler behavior settings | Advanced/admin use |
 | `Lists` | Validation/helper values | Setup routine |
 | `_Preview` | Temporary generated preview data | Scheduler |
