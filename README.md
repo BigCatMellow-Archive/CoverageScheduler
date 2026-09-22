@@ -181,6 +181,22 @@ That means:
 
 Field trips have stable event IDs and can be edited as one event from the **Calendar** or directly from the field-trip card in the daily coverage plan. The plan card shows the staff on the trip by name, teachers released to help because their trip-grade classes were cancelled, and the coverage assignment for each remaining class. Clicking a coverage line opens the normal manual reassignment editor. Changing the staff, grade, dates, or times changes the scheduling consequences the next time the plan is generated.
 
+### Field-trip assignment priorities
+
+Field-trip coverage is scheduled across the **whole event in chronological order**, not one absent teacher at a time. This lets the scheduler make the same kind of continuity decisions a person would make when looking at the day as a whole.
+
+For each block, the scheduler prefers:
+
+1. a staying teacher whose trip-grade class is cancelled during that exact time;
+2. among equally valid choices, a teacher whose released trip-grade time continues into upcoming coverage blocks;
+3. reusing someone already helping with the same field trip;
+4. keeping the same coverage person across adjacent blocks, even when the absent teacher changes;
+5. direct released-class coverage over planning or a moved break;
+6. if break time must be consumed, moving it to the nearest suitable cancelled trip-grade block, preferring a later block;
+7. regular Coverage Staff only after trip-created coverage and ordinary absence scheduling are exhausted.
+
+The goal is not merely to fill every block. It is to use **fewer people, fewer handoffs, and less schedule disruption** while preserving each teacher's required break time.
+
 ### Schedule term and trip-boundary rules
 
 The native Teacher Schedule may contain both `S1` and `S2` rows for the same teacher. Coverage Scheduler filters to the semester that applies to the selected date before it decides whether someone is free. By default July–December uses **S1** and January–June uses **S2**. A Config value named `Schedule_Term_Override`, `Active_Term`, or `Schedule_Term` can override that inference when needed.
