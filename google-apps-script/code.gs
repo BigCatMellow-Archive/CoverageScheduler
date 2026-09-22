@@ -686,7 +686,7 @@ function getSidebarBootstrap(payload) {
     day: dayCode,
     allStaff: typeof getWebStaffRoster_ === 'function'
       ? getWebStaffRoster_(dayCode)
-      : getAllSchedulableStaff_(dayCode),
+      : getAllSchedulableStaff_(dayCode, today),
     allCoverageStaff: getAllCoverageStaff_(today, dayCode),
     fieldTripCoverageStaff: getFieldTripCoverageStaffForDate_(today, dayCode),
     currentAbsences: getDailyAbsencesForDate_(today, dayCode),
