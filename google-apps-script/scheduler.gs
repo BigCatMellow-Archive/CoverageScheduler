@@ -2,6 +2,7 @@ const HEADER_ALIASES = {
   'Teacher Schedule': {
     Staff_Name: ['Staff_Name', 'Teacher', 'Teacher_Name', 'Name'],
     Role: ['Role'],
+    Term: ['Term', 'Semester', 'Schedule_Term', 'Schedule Term'],
     Day: ['Day'],
     Start: ['Start', 'Start_Time', 'Start Time'],
     End: ['End', 'End_Time', 'End Time'],
@@ -357,9 +358,13 @@ function getCoverageStaffSheetName_() {
   throw new Error('Missing sheet: Coverage Staff (or Substitutes)');
 }
 
-function getAllSchedulableStaff_(dayCode) {
-  const rows = readSheetObjects_('Teacher Schedule');
+function getAllSchedulableStaff_(dayCode, date) {
+  const config = getConfigMap_();
+  const rows = date
+    ? filterTeacherScheduleForDate_(readSheetObjects_('Teacher Schedule'), date, config)
+    : readSheetObjects_('Teacher Schedule');
   const map = {};
+
   rows.forEach(row => {
     const normalized = normalizeTeacherScheduleRow_(row);
     if (dayCode && normalized.day !== String(dayCode).trim()) return;
@@ -387,6 +392,7 @@ function getAllSchedulableStaff_(dayCode) {
       });
     }
   });
+
   return Object.keys(map).sort().map(name => {
     map[name].blocks.sort((a, b) => displayTimeToMinutes_(a.start) - displayTimeToMinutes_(b.start));
     return map[name];
@@ -868,6 +874,194 @@ function findOpenBreakSlotInReleasedRow_(candidateName, releasedRow, durationMin
   return null;
 }
 
+function mergeTimeSegments_(segments) {
+  const sorted = (segments || [])
+    .filter(segment => segment && segment.endMinutes > segment.startMinutes)
+    .sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes);
+
+  const merged = [];
+  sorted.forEach(segment => {
+    const last = merged[merged.length - 1];
+    if (!last || segment.startMinutes > last.endMinutes) {
+      merged.push({
+        startMinutes: segment.startMinutes,
+        endMinutes: segment.endMinutes
+      });
+      return;
+    }
+    last.endMinutes = Math.max(last.endMinutes, segment.endMinutes);
+  });
+  return merged;
+}
+
+function uncoveredIntervals_(startMinutes, endMinutes, coveredSegments) {
+  const merged = mergeTimeSegments_(coveredSegments);
+  const gaps = [];
+  let cursor = startMinutes;
+
+  merged.forEach(segment => {
+    if (segment.endMinutes <= cursor || segment.startMinutes >= endMinutes) return;
+    const start = Math.max(segment.startMinutes, startMinutes);
+    const end = Math.min(segment.endMinutes, endMinutes);
+    if (start > cursor) gaps.push({ startMinutes: cursor, endMinutes: start });
+    cursor = Math.max(cursor, end);
+  });
+
+  if (cursor < endMinutes) gaps.push({ startMinutes: cursor, endMinutes: endMinutes });
+  return gaps.filter(gap => gap.endMinutes > gap.startMinutes);
+}
+
+function segmentsCoverIntervals_(segments, intervals) {
+  const merged = mergeTimeSegments_(segments);
+  return (intervals || []).every(interval => {
+    let cursor = interval.startMinutes;
+    for (const segment of merged) {
+      if (segment.endMinutes <= cursor) continue;
+      if (segment.startMinutes > cursor) return false;
+      cursor = Math.max(cursor, segment.endMinutes);
+      if (cursor >= interval.endMinutes) return true;
+    }
+    return cursor >= interval.endMinutes;
+  });
+}
+
+function fieldTripReleasedRows_(availabilityRows, event) {
+  return (availabilityRows || []).filter(row =>
+    isInstructionalGradeBlock_(row) &&
+    (event.grades || []).some(grade => normalizeGradeKey_(grade) === normalizeGradeKey_(row.grade)) &&
+    row.startMinutes < event.endMinutes &&
+    row.endMinutes > event.startMinutes
+  );
+}
+
+function fieldTripCoverageComposition_(candidate, block, event, availabilityRows, state) {
+  const releasedRows = fieldTripReleasedRows_(availabilityRows, event);
+  const releasedSegments = releasedRows
+    .map(row => ({
+      startMinutes: Math.max(row.startMinutes, block.startMinutes),
+      endMinutes: Math.min(row.endMinutes, block.endMinutes),
+      row: row,
+      kind: 'released'
+    }))
+    .filter(segment => segment.endMinutes > segment.startMinutes);
+
+  const planningSegments = (availabilityRows || [])
+    .filter(row => row.coverEligibleThisBlock && assignmentTypeIsPlanning_(row))
+    .map(row => ({
+      startMinutes: Math.max(row.startMinutes, block.startMinutes),
+      endMinutes: Math.min(row.endMinutes, block.endMinutes),
+      row: row,
+      kind: 'planning'
+    }))
+    .filter(segment => segment.endMinutes > segment.startMinutes);
+
+  const nonBreakSegments = releasedSegments.concat(planningSegments);
+  const uncovered = uncoveredIntervals_(block.startMinutes, block.endMinutes, nonBreakSegments);
+
+  if (!uncovered.length) {
+    const releasedNames = releasedSegments
+      .filter(segment => segment.startMinutes < block.endMinutes && segment.endMinutes > block.startMinutes)
+      .map(segment => segment.row.className || (normalizeGradeKey_(segment.row.grade) + ' class'));
+    const planningUsed = planningSegments.length > 0;
+
+    return {
+      available: true,
+      priority: releasedSegments.length ? 3 : 1,
+      reason: releasedSegments.length
+        ? 'Available because ' + Array.from(new Set(releasedNames)).join(' + ') +
+          ' ' + (releasedNames.length > 1 ? 'are' : 'is') +
+          ' cancelled by ' + (event.name || 'the field trip')
+        : 'Available during planning; included in the field-trip pool because this teacher teaches ' +
+          ((event.grades || []).join('/') || 'the trip grade'),
+      breakMove: null
+    };
+  }
+
+  const breakSegments = (availabilityRows || [])
+    .filter(row => assignmentTypeIsBreak_(row))
+    .map(row => ({
+      startMinutes: Math.max(row.startMinutes, block.startMinutes),
+      endMinutes: Math.min(row.endMinutes, block.endMinutes),
+      row: row,
+      kind: 'break'
+    }))
+    .filter(segment => segment.endMinutes > segment.startMinutes);
+
+  if (!segmentsCoverIntervals_(breakSegments, uncovered)) {
+    return { available: false, priority: 0, reason: '', breakMove: null };
+  }
+
+  const displacedBreakMinutes = uncovered.reduce(
+    (sum, gap) => sum + (gap.endMinutes - gap.startMinutes),
+    0
+  );
+  if (displacedBreakMinutes <= 0) {
+    return { available: false, priority: 0, reason: '', breakMove: null };
+  }
+
+  const replacementRows = releasedRows
+    .filter(row => !timesOverlap_(row.startMinutes, row.endMinutes, block.startMinutes, block.endMinutes))
+    .map(row => Object.assign({}, row, {
+      startMinutes: Math.max(row.startMinutes, event.startMinutes),
+      endMinutes: Math.min(row.endMinutes, event.endMinutes)
+    }))
+    .filter(row => row.endMinutes > row.startMinutes)
+    .sort((a, b) => a.startMinutes - b.startMinutes);
+
+  let replacement = null;
+  let replacementRow = null;
+  for (const row of replacementRows) {
+    const slot = findOpenBreakSlotInReleasedRow_(
+      candidate.name,
+      row,
+      displacedBreakMinutes,
+      state
+    );
+    if (!slot) continue;
+    replacement = slot;
+    replacementRow = row;
+    break;
+  }
+
+  if (!replacement || !replacementRow) {
+    return { available: false, priority: 0, reason: '', breakMove: null };
+  }
+
+  const displacedText = uncovered
+    .map(gap => minutesToDisplay_(gap.startMinutes) + '–' + minutesToDisplay_(gap.endMinutes))
+    .join(' + ');
+
+  const releasedUsed = releasedSegments
+    .map(segment => segment.row.className || (normalizeGradeKey_(segment.row.grade) + ' class'));
+  const releasedText = Array.from(new Set(releasedUsed)).join(' + ');
+
+  const reason =
+    (releasedText
+      ? 'Available because ' + releasedText + ' is cancelled by ' + (event.name || 'the field trip') + '; '
+      : '') +
+    'break time used for ' + displacedText +
+    ' and moved to ' +
+    minutesToDisplay_(replacement.startMinutes) + '–' + minutesToDisplay_(replacement.endMinutes) +
+    ' inside cancelled ' +
+    (replacementRow.className || (normalizeGradeKey_(replacementRow.grade) + ' class'));
+
+  return {
+    available: true,
+    priority: 2,
+    reason: reason,
+    breakMove: {
+      eventId: event.eventId,
+      originalBreakStartMinutes: uncovered[0].startMinutes,
+      originalBreakEndMinutes: uncovered[uncovered.length - 1].endMinutes,
+      replacementStartMinutes: replacement.startMinutes,
+      replacementEndMinutes: replacement.endMinutes,
+      replacementGrade: normalizeGradeKey_(replacementRow.grade),
+      replacementClass: replacementRow.className || replacementRow.subject || 'trip-grade class',
+      reason: reason
+    }
+  };
+}
+
 function findFieldTripBreakMove_(candidate, block, event, availabilityRows, state) {
   const currentBreak = availabilityRows.find(row =>
     assignmentTypeIsBreak_(row) &&
@@ -933,55 +1127,20 @@ function candidateFieldTripAvailability_(candidate, block, availabilityRows, sta
     };
   }
 
-  const released = availabilityRows.find(row =>
-    row.startMinutes <= block.startMinutes &&
-    row.endMinutes >= block.endMinutes &&
-    isInstructionalGradeBlock_(row) &&
-    row.startMinutes < event.endMinutes &&
-    row.endMinutes > event.startMinutes &&
-    (event.grades || []).some(grade => normalizeGradeKey_(grade) === normalizeGradeKey_(row.grade))
+  const composition = fieldTripCoverageComposition_(
+    candidate,
+    block,
+    event,
+    availabilityRows,
+    state
   );
 
-  if (released) {
-    return {
-      available: true,
-      fieldTripPriority: 3,
-      fieldTripReason:
-        'Available because ' + (released.className || (normalizeGradeKey_(released.grade) + ' class')) +
-        ' is cancelled by ' + (event.name || 'the field trip'),
-      fieldTripBreakMove: null
-    };
-  }
-
-  const planning = availabilityRows.find(row =>
-    row.startMinutes <= block.startMinutes &&
-    row.endMinutes >= block.endMinutes &&
-    row.coverEligibleThisBlock &&
-    assignmentTypeIsPlanning_(row)
-  );
-
-  if (planning) {
-    return {
-      available: true,
-      fieldTripPriority: 1,
-      fieldTripReason:
-        'Available during planning; included in the field-trip pool because this teacher teaches ' +
-        ((event.grades || []).join('/') || 'the trip grade'),
-      fieldTripBreakMove: null
-    };
-  }
-
-  const breakMove = findFieldTripBreakMove_(candidate, block, event, availabilityRows, state);
-  if (breakMove) {
-    return {
-      available: true,
-      fieldTripPriority: 2,
-      fieldTripReason: breakMove.reason,
-      fieldTripBreakMove: breakMove
-    };
-  }
-
-  return { available: false, fieldTripPriority: 0, fieldTripReason: '', fieldTripBreakMove: null };
+  return {
+    available: !!composition.available,
+    fieldTripPriority: Number(composition.priority || 0),
+    fieldTripReason: composition.reason || '',
+    fieldTripBreakMove: composition.breakMove || null
+  };
 }
 
 function generateCoveragePreview(payload) {
@@ -990,7 +1149,11 @@ function generateCoveragePreview(payload) {
   const day = payload.day || guessDayCodeFromDate_(date);
 
   const config = getConfigMap_();
-  const teacherSchedule = readSheetObjects_('Teacher Schedule');
+  const teacherSchedule = filterTeacherScheduleForDate_(
+    readSheetObjects_('Teacher Schedule'),
+    date,
+    config
+  );
   const configuredCoverageStaff = getCoverageStaffForDate_(date, day, config);
   const activeCoverageStaff = configuredCoverageStaff.filter(row => row.name && row.activeToday);
   const absences = getDailyAbsencesForDate_(date, day);
@@ -1286,11 +1449,27 @@ function isEmergencyAbsence_(absence) {
 
 function filterRowsByAbsenceType_(rows, absence) {
   const type = String(absence.absenceType || 'Full Day').trim();
-  if (type === 'Full Day') return rows;
+  if (type === 'Full Day') {
+    return (rows || []).map(row => Object.assign({}, row));
+  }
+
   const startMinutes = displayTimeToMinutes_(absence.startOverride);
   const endMinutes = displayTimeToMinutes_(absence.endOverride);
-  if (startMinutes == null || endMinutes == null) return rows;
-  return rows.filter(row => row.startMinutes < endMinutes && row.endMinutes > startMinutes);
+  if (startMinutes == null || endMinutes == null) {
+    return (rows || []).map(row => Object.assign({}, row));
+  }
+
+  return (rows || [])
+    .filter(row => row.startMinutes < endMinutes && row.endMinutes > startMinutes)
+    .map(row => {
+      const clipped = Object.assign({}, row);
+      clipped.originalStartMinutes = row.startMinutes;
+      clipped.originalEndMinutes = row.endMinutes;
+      clipped.startMinutes = Math.max(row.startMinutes, startMinutes);
+      clipped.endMinutes = Math.min(row.endMinutes, endMinutes);
+      return clipped;
+    })
+    .filter(row => row.endMinutes > row.startMinutes);
 }
 
 function estimateDifficulty_(absentName, blocks, coverageStaff, teacherSchedule, day, config) {
@@ -1740,6 +1919,50 @@ function makePlanRow_(date, day, block, candidate, coverageMode, status, notes) 
   };
 }
 
+function normalizeScheduleTerm_(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const compact = raw.toLowerCase().replace(/[.\s_-]+/g, '');
+
+  if (compact === 's1' || compact === 'semester1' || compact === 'term1' || compact === 'firstsemester') return 'S1';
+  if (compact === 's2' || compact === 'semester2' || compact === 'term2' || compact === 'secondsemester') return 'S2';
+  return raw;
+}
+
+function activeScheduleTermForDate_(date, config) {
+  const override = normalizeScheduleTerm_(
+    config && (config.Schedule_Term_Override || config.Active_Term || config.Schedule_Term)
+  );
+  if (override) return override;
+
+  const key = normalizeDateKey_(date);
+  const parsed = key ? new Date(key + 'T12:00:00') : null;
+  if (!parsed || isNaN(parsed)) return '';
+
+  // Coverage Scheduler follows the school's academic-year pattern:
+  // S1 is the fall semester; S2 is the spring semester.
+  return parsed.getMonth() >= 6 ? 'S1' : 'S2';
+}
+
+function filterTeacherScheduleForDate_(rows, date, config) {
+  const source = rows || [];
+  const termsPresent = new Set(
+    source.map(row => normalizeScheduleTerm_(row.Term)).filter(Boolean)
+  );
+
+  // Preserve backward compatibility for schedules with no semester column or
+  // schedules using unrelated custom term labels.
+  if (!termsPresent.has('S1') && !termsPresent.has('S2')) return source.slice();
+
+  const activeTerm = activeScheduleTermForDate_(date, config);
+  if (!activeTerm) return source.slice();
+
+  return source.filter(row => {
+    const term = normalizeScheduleTerm_(row.Term);
+    return !term || term === activeTerm;
+  });
+}
+
 function normalizeTeacherScheduleRow_(row) {
   const subject = String(row.Subject || '').trim();
   const rawClassName = String(row.Class || '').trim();
@@ -1752,6 +1975,7 @@ function normalizeTeacherScheduleRow_(row) {
   return {
     staffName: String(row.Staff_Name || '').trim(),
     role: String(row.Role || '').trim(),
+    term: normalizeScheduleTerm_(row.Term),
     day: String(row.Day || '').trim(),
     startMinutes: timeToMinutes_(row.Start),
     endMinutes: timeToMinutes_(row.End),
@@ -1768,7 +1992,6 @@ function normalizeTeacherScheduleRow_(row) {
       : inferCoverEligibleThisBlock_(assignmentType, subject)
   };
 }
-
 
 function buildClassDisplayName_(className, subject, assignmentType) {
   const rawClass = String(className || '').trim();
@@ -1858,7 +2081,11 @@ function getFieldTripCoverageStaffForDate_(date, day) {
   if (!fieldTrips.length) return [];
 
   const config = getConfigMap_();
-  const teacherSchedule = readSheetObjects_('Teacher Schedule');
+  const teacherSchedule = filterTeacherScheduleForDate_(
+    readSheetObjects_('Teacher Schedule'),
+    date,
+    config
+  );
   const configuredCoverageStaff = getCoverageStaffForDate_(date, day, config);
   const activeCoverageStaff = configuredCoverageStaff.filter(row => row.name && row.activeToday);
   return buildFieldTripCoverageCandidates_(
