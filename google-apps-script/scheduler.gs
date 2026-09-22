@@ -1631,7 +1631,7 @@ function getFieldTripCoverageStaffForDate_(date, day) {
       role: candidate.role,
       tier: candidate.tier,
       activeToday: candidate.activeToday,
-      fieldTripOnly: true,
+      fieldTripOnly: !!candidate.fieldTripOnly,
       fieldTripEvents: (candidate.fieldTripEvents || []).map(event => ({
         eventId: event.eventId,
         name: event.name
