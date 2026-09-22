@@ -122,9 +122,9 @@ function normalizeGradeKey_(value) {
   if (!raw) return '';
   const compact = raw.toLowerCase().replace(/[.\s_-]+/g, '');
 
-  if (compact.indexOf('beginner') === 0 || compact === 'beg') return 'Beg';
+  if (compact.indexOf('beginner') === 0 || compact.indexOf('beg') === 0) return 'Beg';
   if (compact.indexOf('prekindergarten') === 0 || compact.indexOf('prekind') === 0 || compact.indexOf('prek') === 0) return 'PreK';
-  if (compact === 'k' || compact.indexOf('kindergarten') === 0) return 'K';
+  if (/^k[a-z]?$/.test(compact) || compact.indexOf('kindergarten') === 0) return 'K';
 
   const ordinal = raw.match(/\b(\d+)(?:st|nd|rd|th)?\b/i);
   if (ordinal) return String(Number(ordinal[1]));
@@ -894,6 +894,7 @@ function generateCoveragePreview(payload) {
       tier: row.tier,
       role: row.role,
       allDay: row.canCoverAllDay,
+      activeToday: !!row.activeToday,
       fieldTripOnly: !!row.fieldTripOnly
     }))
   };
@@ -1528,6 +1529,32 @@ function normalizeCoverageStaffRow_(row, config) {
   };
 }
 
+
+function getFieldTripCoverageStaffForDate_(date, day) {
+  const fieldTrips = getFieldTripsForDate_(date);
+  if (!fieldTrips.length) return [];
+
+  const config = getConfigMap_();
+  const teacherSchedule = readSheetObjects_('Teacher Schedule');
+  const configuredCoverageStaff = getCoverageStaffForDate_(date, day, config);
+  const activeCoverageStaff = configuredCoverageStaff.filter(row => row.name && row.activeToday);
+  return buildFieldTripCoverageCandidates_(
+    fieldTrips,
+    teacherSchedule,
+    day,
+    activeCoverageStaff,
+    configuredCoverageStaff
+  )
+    .filter(candidate => candidate.fieldTripOnly)
+    .map(candidate => ({
+      name: candidate.name,
+      role: candidate.role,
+      tier: candidate.tier,
+      activeToday: candidate.activeToday,
+      fieldTripOnly: true
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
 
 function getCoverageStaffForDate_(date, day, config) {
   const rows = readSheetObjects_(getCoverageStaffSheetName_())
