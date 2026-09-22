@@ -1924,6 +1924,15 @@ function normalizeScheduleTerm_(value) {
   if (!raw) return '';
   const compact = raw.toLowerCase().replace(/[.\s_-]+/g, '');
 
+  // Full-year rows are active in both semesters. Normalize them to blank so
+  // date-based semester filtering preserves them alongside the active term.
+  if (
+    compact === 'allyear' ||
+    compact === 'fullyear' ||
+    compact === 'yearlong' ||
+    compact === 'annual'
+  ) return '';
+
   if (compact === 's1' || compact === 'semester1' || compact === 'term1' || compact === 'firstsemester') return 'S1';
   if (compact === 's2' || compact === 'semester2' || compact === 'term2' || compact === 'secondsemester') return 'S2';
   return raw;
