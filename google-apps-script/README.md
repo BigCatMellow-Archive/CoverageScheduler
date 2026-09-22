@@ -69,11 +69,13 @@ You do **not** need to manually edit `Coverage Staff` for normal use. Open the w
 4. Deploy and authorize the requested Google Sheets/Docs permissions.
 5. Open the generated `/exec` URL.
 
-The web UI supports the normal workflow: choose a date, add/edit absences, create/edit/remove coverage staff, toggle daily coverage availability, generate the plan, inspect Timeline/Table/By Sub views, manually reassign blocks, save output, and create the handout document.
+The web UI supports the normal workflow: choose a date, add/edit absences, create/edit/remove coverage staff, toggle daily coverage availability, generate the plan, inspect Timeline/Table/By Sub views, manually reassign blocks, then use **Save & Handout** to save the exact reviewed plan to `Coverage Output` and create the Google Docs handout from those same rows in one operation.
 
 For shared events such as field trips, use **+ Group Absence**. Select multiple staff members, choose the shared date or date range, and enter the common absence window. The app stores each selected person as a normal absence, so the existing scheduling engine automatically finds every overlapping class/duty block and assigns coverage without double-booking the same coverage person. Group absences use automatic assignment initially; individual blocks can still be manually reassigned after the plan is generated.
 
 ## Handouts
+
+The web app creates the handout as part of **Save & Handout**. This keeps the saved `Coverage Output` and the handout synchronized, including manual block reassignments made after generation.
 
 `handout.gs` creates one landscape page per coverage person with a full-width assignment table. The time column is intentionally wide enough for normal time ranges to stay on one line, while compact cell padding keeps rows short. The table uses the full printable width of the page with larger Subject and Absent Teacher columns for easier scanning.
 
