@@ -323,12 +323,35 @@ function getFieldTripUi_() {
   }
 
   var baseRenderPlan=renderPlan;
+  function triggerCoverageGeneration(){
+    var topButton=document.getElementById('generateBtn');
+    if(topButton){
+      topButton.click();
+      return;
+    }
+    if(typeof generate==='function'){
+      generate();
+      return;
+    }
+    flash('Coverage generator is not available. Refresh the page and try again.','warn');
+  }
+
   renderPlan=function(){
     baseRenderPlan();
     var summary=renderFieldTripPlanSummary();
     if(summary){
       var body=document.getElementById('planBody');
       body.insertAdjacentHTML('afterbegin',summary);
+
+      // These buttons are inserted dynamically after the page-level event
+      // bindings run, so bind them directly each time the plan is rendered.
+      body.querySelectorAll('[data-ft-generate-plan]').forEach(function(button){
+        button.addEventListener('click',function(e){
+          e.preventDefault();
+          e.stopPropagation();
+          triggerCoverageGeneration();
+        });
+      });
     }
   };
 
@@ -449,7 +472,9 @@ function getFieldTripUi_() {
     }
     var generateButton=e.target.closest('[data-ft-generate-plan]');
     if(generateButton){
-      generate();
+      e.preventDefault();
+      e.stopPropagation();
+      triggerCoverageGeneration();
       return;
     }
     var block=e.target.closest('[data-ft-plan-block]');
