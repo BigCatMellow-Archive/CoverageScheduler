@@ -1625,7 +1625,7 @@ function getFieldTripCoverageStaffForDate_(date, day) {
     activeCoverageStaff,
     configuredCoverageStaff
   )
-    .filter(candidate => candidate.fieldTripOnly)
+    .filter(candidate => (candidate.fieldTripEvents || []).length)
     .map(candidate => ({
       name: candidate.name,
       role: candidate.role,
