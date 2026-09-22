@@ -65,7 +65,9 @@ function getFieldTripUi_() {
         '<div class="m-hd"><div><h2 id="fieldTripModalTitle">Add Field Trip</h2><div class="m-sub">Choose the students and staff who will be away. The scheduler will cancel those grade-level classes and reuse released teachers for coverage.</div></div><button class="m-x" data-ft-close="fieldTripModal">×</button></div>'+
         '<div class="m-body">'+
           '<div class="fg"><label class="fl">Trip Name</label><input id="ftName" class="fi" placeholder="2nd Grade Field Trip"></div>'+
-          '<div class="f-row-3"><div class="fg"><label class="fl">Date</label><input id="ftDate" type="date" class="fi"></div><div class="fg"><label class="fl">Start</label><input id="ftStart" type="time" class="fi" value="09:00"></div><div class="fg"><label class="fl">End</label><input id="ftEnd" type="time" class="fi" value="14:00"></div></div>'+
+          '<div class="f-row"><div class="fg"><label class="fl">Start Date</label><input id="ftDate" type="date" class="fi"></div><div class="fg"><label class="fl">Departure</label><input id="ftStart" type="time" class="fi" value="09:00"></div></div>'+
+          '<div class="f-row"><div class="fg"><label class="fl">End Date</label><input id="ftEndDate" type="date" class="fi"></div><div class="fg"><label class="fl">Return</label><input id="ftEnd" type="time" class="fi" value="14:00"></div></div>'+
+          '<div class="hint" style="margin:-5px 0 12px">For a one-day trip, use the same start and end date. Overnight trips remain active across every day in between.</div>'+
           '<div class="fg"><label class="fl">Students on Trip</label><div id="ftGrades" class="ft-grade-grid"></div><div class="hint">Classes for these grades are treated as cancelled during the trip window.</div></div>'+
           '<div class="fg ft-staff-box"><label class="fl">Staff on Trip</label><input id="ftStaffSearch" class="fi" placeholder="Search staff…"><div id="ftStaffList" class="ft-staff-list"></div><div id="ftStaffHint" class="hint" style="margin-top:7px"></div></div>'+
           '<div class="fg"><label class="fl">Notes <span style="font-weight:500;text-transform:none">(optional)</span></label><textarea id="ftNotes" class="fta" placeholder="Destination, grade-level details, or anything the office should know"></textarea></div>'+
@@ -167,7 +169,10 @@ function getFieldTripUi_() {
 
     document.getElementById('fieldTripModalTitle').textContent=trip?'Edit Field Trip':'Add Field Trip';
     document.getElementById('ftName').value=trip?trip.name:'';
-    document.getElementById('ftDate').value=trip?trip.date:(S.date||'');
+    var tripStartDate=trip?(trip.startDate||trip.date):(S.date||'');
+    var tripEndDate=trip?(trip.endDate||trip.startDate||trip.date):tripStartDate;
+    document.getElementById('ftDate').value=tripStartDate;
+    document.getElementById('ftEndDate').value=tripEndDate;
     document.getElementById('ftStart').value=trip?inputTime(trip.start):'09:00';
     document.getElementById('ftEnd').value=trip?inputTime(trip.end):'14:00';
     document.getElementById('ftNotes').value=trip?trip.notes:'';
@@ -184,7 +189,8 @@ function getFieldTripUi_() {
     var payload={
       eventId:editingEventId,
       name:document.getElementById('ftName').value.trim(),
-      date:document.getElementById('ftDate').value,
+      startDate:document.getElementById('ftDate').value,
+      endDate:document.getElementById('ftEndDate').value,
       start:document.getElementById('ftStart').value,
       end:document.getElementById('ftEnd').value,
       grades:grades,
@@ -219,7 +225,10 @@ function getFieldTripUi_() {
     var tripHtml=trips.map(function(trip){
       var grades=(trip.grades||[]).join(', ');
       var people=(trip.staffNames||[]).length;
-      return '<div class="abs-row field-trip-row"><div class="abs-info"><div class="abs-name">'+esc(trip.name||'Field Trip')+'</div><span class="ft-badge">Field Trip</span><div class="ft-meta">Grades '+esc(grades)+' · '+people+' staff · '+esc(trip.start)+'–'+esc(trip.end)+'</div></div><button class="link-btn" data-edit-fieldtrip="'+esc(trip.eventId)+'">Edit</button></div>';
+      var startDate=trip.startDate||trip.date,endDate=trip.endDate||startDate,active=trip.activeDate||S.date;
+      var windowText=startDate===endDate?(trip.start+'–'+trip.end):(active===startDate?('Departs '+trip.start):active===endDate?('Returns '+trip.end):'Overnight · all day');
+      var rangeText=startDate!==endDate?(' · '+startDate+' → '+endDate):'';
+      return '<div class="abs-row field-trip-row"><div class="abs-info"><div class="abs-name">'+esc(trip.name||'Field Trip')+'</div><span class="ft-badge">Field Trip</span><div class="ft-meta">Grades '+esc(grades)+' · '+people+' staff · '+esc(windowText)+esc(rangeText)+'</div></div><button class="link-btn" data-edit-fieldtrip="'+esc(trip.eventId)+'">Edit</button></div>';
     }).join('');
     list.innerHTML=tripHtml+existing;
   }
@@ -271,7 +280,16 @@ function getFieldTripUi_() {
 
   function renderCalendar(data,start,monthIndex){
     var tripsByDate={},absByDate={};
-    (data.fieldTrips||[]).forEach(function(t){(tripsByDate[t.date]||(tripsByDate[t.date]=[])).push(t);});
+    (data.fieldTrips||[]).forEach(function(t){
+      var startKey=t.startDate||t.date,endKey=t.endDate||startKey,d=parseDateKey(startKey),endDate=parseDateKey(endKey),guard=0;
+      if(!d||!endDate)return;
+      while(d<=endDate&&guard<60){
+        var key=dateKey(d);
+        (tripsByDate[key]||(tripsByDate[key]=[])).push(t);
+        d.setDate(d.getDate()+1);
+        guard++;
+      }
+    });
     (data.absences||[]).forEach(function(a){(absByDate[a.date]||(absByDate[a.date]=[])).push(a);});
     var today=dateKey(new Date());
     var html='';
@@ -284,7 +302,9 @@ function getFieldTripUi_() {
       html+='<div class="'+classes+'"><button class="calendar-day-number" data-calendar-date="'+key+'">'+d.getDate()+'</button>';
       (tripsByDate[key]||[]).forEach(function(t){
         var grades=(t.grades||[]).join(',');
-        html+='<button class="calendar-event" data-calendar-trip="'+esc(t.eventId)+'">'+esc(t.name||'Field Trip')+(grades?' · '+esc(grades):'')+'</button>';
+        var startKey=t.startDate||t.date,endKey=t.endDate||startKey;
+        var phase=startKey!==endKey?(key===startKey?'Departs · ':key===endKey?'Returns · ':'↔ '):'';
+        html+='<button class="calendar-event" data-calendar-trip="'+esc(t.eventId)+'">'+phase+esc(t.name||'Field Trip')+(grades?' · '+esc(grades):'')+'</button>';
       });
       var absCount=(absByDate[key]||[]).length;
       if(absCount)html+='<span class="calendar-absence">'+absCount+' absence'+(absCount===1?'':'s')+'</span>';
@@ -307,6 +327,10 @@ function getFieldTripUi_() {
   document.getElementById('calendarNext').addEventListener('click',function(){calendarCursor.setMonth(calendarCursor.getMonth()+1);loadCalendar();});
   document.getElementById('saveFieldTripBtn').addEventListener('click',saveFieldTrip);
   document.getElementById('deleteFieldTripBtn').addEventListener('click',deleteFieldTrip);
+  document.getElementById('ftDate').addEventListener('change',function(){
+    var endDate=document.getElementById('ftEndDate');
+    if(!endDate.value||endDate.value<this.value)endDate.value=this.value;
+  });
   document.getElementById('ftStaffSearch').addEventListener('input',renderStaff);
   document.getElementById('ftStaffList').addEventListener('change',function(e){
     var box=e.target.closest('[data-ft-staff]');

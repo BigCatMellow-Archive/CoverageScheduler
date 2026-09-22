@@ -73,9 +73,9 @@ You do **not** need to manually edit `Coverage Staff` for normal use. Open the w
 
 The web UI supports the normal workflow: choose a date, add/edit absences, create/edit/remove coverage staff, toggle daily coverage availability, generate the plan, inspect Timeline/Table/By Sub views, manually reassign blocks, then use **Save & Handout** to save the exact reviewed plan to `Coverage Output` and create the Google Docs handout from those same rows in one operation.
 
-Field trips are first-class events rather than ordinary group absences. Use **+ Field Trip** to choose the event date/time, student grade(s), and staff going on the trip. Use **Calendar** to see field trips and ordinary absences together and to reopen an event for editing.
+Field trips are first-class events rather than ordinary group absences. Use **+ Field Trip** to choose the departure date/time, return date/time, student grade(s), and staff going on the trip. For one-day trips, the start and end dates are the same. Overnight trips remain one event across the full date range. Use **Calendar** to see field trips and ordinary absences together and to reopen an event for editing.
 
-During generation, trip-grade classes are treated as cancelled while those students are away. Staff on the trip still need coverage for their other classes. Teachers staying behind whose trip-grade classes were cancelled become a temporary first-priority coverage pool; their released class blocks and usable planning/break blocks can cover the classes that remain. The scheduler falls back to normal Coverage Staff only when the field-trip pool cannot cover a block.
+During generation, trip-grade classes are treated as cancelled while those students are away. On a multi-day trip, the departure day begins at the departure time, middle dates are treated as full-day trip dates, and the return day ends at the return time. Staff on the trip still need coverage for their other classes. Teachers staying behind whose trip-grade classes were cancelled become a temporary first-priority coverage pool; their released class blocks and usable planning/break blocks can cover the classes that remain. The scheduler falls back to normal Coverage Staff only when the field-trip pool cannot cover a block.
 
 ## Handouts
 

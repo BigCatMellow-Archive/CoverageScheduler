@@ -77,7 +77,7 @@ You can also add notes and, for a normal single-person absence, optionally speci
 
 Field trips are separate from ordinary absences. Use **+ Field Trip** to create one, or **Calendar** to find and edit an existing event.
 
-A field trip is stored once rather than as several independent absence rows. The selected grade(s) and staff determine which classes disappear, which classes still need coverage, and which teachers staying behind become temporarily available.
+A field trip is stored once rather than as several independent absence rows. It can be one day or span multiple/overnight dates. The selected grade(s), staff, departure, and return determine which classes disappear, which classes still need coverage, and which teachers staying behind become temporarily available.
 
 ### 3. Confirm the coverage team
 
@@ -155,7 +155,7 @@ The scheduler covers blocks that overlap that absence window. A class from 10:30
 
 1. Click **+ Field Trip**.
 2. Name the event, such as `2nd Grade Field Trip`.
-3. Choose the date and trip times.
+3. Choose the departure date/time and return date/time. For a one-day trip, use the same date twice.
 4. Select **2** under **Students on Trip**.
 5. Select Mike and every other staff member going on the trip.
 6. Save the field trip.
@@ -171,7 +171,20 @@ The scheduler changes the day before assigning coverage:
 - Steve's other classes that are still happening keep him unavailable.
 - If the field-trip pool cannot cover a block, the scheduler falls back to the normal Coverage Staff pool.
 
-Field trips have stable event IDs and can be edited as one event from the **Calendar**. Changing the staff, grade, date, or time changes the scheduling consequences the next time the plan is generated.
+Field trips have stable event IDs and can be edited as one event from the **Calendar**. Changing the staff, grade, dates, or times changes the scheduling consequences the next time the plan is generated.
+
+### Overnight and multi-day field trips
+
+A field trip can span several days without creating separate events.
+
+For example, a trip that departs Monday at 10:00 AM and returns Wednesday at 1:00 PM is interpreted as:
+
+- **Monday:** trip rules apply from 10:00 AM onward;
+- **Tuesday:** trip rules apply for the full school day;
+- **Wednesday:** trip rules apply until 1:00 PM;
+- classes before departure Monday and after return Wednesday operate normally.
+
+The same event ID appears across all affected dates in the Calendar, but editing any occurrence edits the single underlying field trip.
 
 ### Example 4: A substitute is only available in the morning
 
@@ -276,7 +289,7 @@ The web app is the normal operating interface, but all live data is stored in th
 | `Coverage Staff` | Coverage people and assignment rules | Web app |
 | `Substitute Availability` | Date-specific availability overrides | Web app / scheduler workflow |
 | `Daily Absences` | Ordinary absences for specific dates | Web app |
-| `Field Trips` | One editable record per field trip: event ID, date/time, grades, staff, notes | Web app / Calendar |
+| `Field Trips` | One editable record per field trip: event ID, start/end dates and times, grades, staff, notes | Web app / Calendar |
 | `Coverage Output` | Final saved coverage assignments | Web app |
 | `Config` | Scheduler behavior settings | Advanced/admin use |
 | `Lists` | Validation/helper values | Setup routine |
