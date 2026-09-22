@@ -126,11 +126,23 @@ function normalizeGradeKey_(value) {
   if (compact.indexOf('prekindergarten') === 0 || compact.indexOf('prekind') === 0 || compact.indexOf('prek') === 0) return 'PreK';
   if (/^k[a-z]?$/.test(compact) || compact.indexOf('kindergarten') === 0) return 'K';
 
-  const ordinal = raw.match(/\b(\d+)(?:st|nd|rd|th)?\b/i);
-  if (ordinal) return String(Number(ordinal[1]));
+  const words = {
+    first: '1',
+    second: '2',
+    third: '3',
+    fourth: '4',
+    fifth: '5',
+    sixth: '6',
+    seventh: '7',
+    eighth: '8'
+  };
+  const lower = raw.toLowerCase();
+  for (const word in words) {
+    if (lower.indexOf(word) !== -1) return words[word];
+  }
 
-  const gradeWord = raw.match(/grade\s*(\d+)/i);
-  if (gradeWord) return String(Number(gradeWord[1]));
+  const numeric = raw.match(/\d+/);
+  if (numeric) return String(Number(numeric[0]));
 
   return raw;
 }
