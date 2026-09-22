@@ -823,6 +823,18 @@ function findOpenBreakSlotInReleasedRow_(candidateName, releasedRow, durationMin
     endMinutes: item.endMinutes
   }));
 
+  const absence = state && state.absencesByCandidate
+    ? state.absencesByCandidate[candidateName]
+    : null;
+  if (absence) {
+    if (absence.allDay) return null;
+    if (absence.startMinutes == null || absence.endMinutes == null) return null;
+    busy.push({
+      startMinutes: absence.startMinutes,
+      endMinutes: absence.endMinutes
+    });
+  }
+
   busy.sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes);
 
   let cursor = releasedRow.startMinutes;
@@ -1504,9 +1516,13 @@ function candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day, 
 
   if (availabilityRows.some(row =>
     row.coverEligibleThisBlock &&
-    !assignmentTypeIsBreak_(row) &&
     row.startMinutes <= block.startMinutes &&
-    row.endMinutes >= block.endMinutes
+    row.endMinutes >= block.endMinutes &&
+    (
+      !assignmentTypeIsBreak_(row) ||
+      !block.fieldTripEventId ||
+      !candidateHasFieldTripEvent_(candidate, block.fieldTripEventId)
+    )
   )) {
     return { available: true, emergencyPull: false, fieldTripPriority: 0, fieldTripReason: '', fieldTripBreakMove: null };
   }
