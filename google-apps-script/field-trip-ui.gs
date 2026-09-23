@@ -204,7 +204,9 @@ function getFieldTripUi_() {
     try{
       var saved=await gas('webSaveFieldTrip',payload);
       closeModal('fieldTripModal');
-      flash((editingEventId?'Field trip updated: ':'Field trip added: ')+(saved.name||'Field Trip')+'.');
+      flash(saved&&saved.deduplicated
+        ? 'That field trip already exists. Using the existing event.'
+        : (editingEventId?'Field trip updated: ':'Field trip added: ')+(saved.name||'Field Trip')+'.');
       await bootstrap(S.date);
       if(!document.getElementById('calendarModal').classList.contains('hidden')) await loadCalendar();
     }catch(e){fail(e)}

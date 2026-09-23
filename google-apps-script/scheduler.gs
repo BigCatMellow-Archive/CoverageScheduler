@@ -255,6 +255,31 @@ function getFieldTripsForDate_(date) {
     .filter(Boolean);
 }
 
+function fieldTripIdentityKey_(trip) {
+  trip = trip || {};
+  const startDate = normalizeDateKey_(trip.startDate || trip.date || trip.Date);
+  const endDate = normalizeDateKey_(trip.endDate || trip.End_Date || trip.startDate || trip.date || trip.Date);
+  const name = String(trip.name || trip.Name || '').trim().toLowerCase();
+  const start = timeToDisplay_(trip.start || trip.Start);
+  const end = timeToDisplay_(trip.end || trip.End);
+  const grades = normalizeFieldTripGrades_(trip.grades || trip.Grades).slice().sort().join('|');
+  const staff = splitFieldTripStaffList_(trip.staffNames || trip.staff || trip.Staff)
+    .map(name => String(name || '').trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join('|');
+
+  return [
+    startDate || '',
+    endDate || '',
+    start || '',
+    end || '',
+    name,
+    grades,
+    staff
+  ].join('::');
+}
+
 function saveFieldTrip_(payload) {
   payload = payload || {};
   const startDate = normalizeDateKey_(payload.startDate || payload.date);
@@ -290,6 +315,31 @@ function saveFieldTrip_(payload) {
   if (eventIdCol === -1) throw new Error('Field Trips sheet is missing Event_ID.');
 
   let eventId = String(payload.eventId || '').trim();
+
+  const incomingIdentity = fieldTripIdentityKey_({
+    name: name,
+    startDate: startDate,
+    endDate: endDate,
+    start: start,
+    end: end,
+    grades: grades,
+    staffNames: staffNames
+  });
+  const duplicate = getFieldTripsInRange_(startDate, endDate).find(trip =>
+    trip.eventId !== eventId &&
+    fieldTripIdentityKey_(trip) === incomingIdentity
+  );
+
+  if (duplicate) {
+    if (eventId) {
+      throw new Error(
+        'Another field trip already matches this event exactly (' +
+        (duplicate.name || 'Field Trip') + ', ' + duplicate.startDate + ').'
+      );
+    }
+    return Object.assign({}, duplicate, { deduplicated: true });
+  }
+
   if (!eventId) {
     eventId = 'FT-' + startDate.replace(/-/g, '') + '-' + Utilities.getUuid().slice(0, 8).toUpperCase();
   }

@@ -423,11 +423,14 @@ Changes merged into GitHub do **not** automatically appear in the deployed Googl
 To update an existing installation:
 
 1. Copy the changed files from `google-apps-script/` into the existing Apps Script project.
-2. Save the project.
-3. Choose **Deploy → Manage deployments**.
-4. Edit the existing Web App deployment.
-5. Select **New version**.
-6. Deploy.
+2. For changes that span the browser and server, update the complete related set **before** deploying. In particular, manual placement and current field-trip scheduling require the current `code.gs`, `scheduler.gs`, `index.html`, and `field-trip-ui.gs` together.
+3. Save the project.
+4. Choose **Deploy → Manage deployments**.
+5. Edit the existing Web App deployment.
+6. Select **New version**.
+7. Deploy.
+
+The web app carries an API compatibility version. If the UI and server are from different releases, it now stops at startup with an explicit **deployment is out of sync** message instead of allowing partially working behavior.
 
 Using the existing deployment keeps the same `/exec` URL.
 
@@ -473,6 +476,8 @@ If they are a **Teacher (Free Blocks)**, also check that their own Teacher Sched
 ### I changed GitHub but the web app still looks old
 
 Merging GitHub code is not enough. Copy the updated files into Apps Script, then create a **New version** of the existing deployment.
+
+If you see **runner[method] is not a function**, the deployed browser and server files are from different releases. Update `code.gs`, `scheduler.gs`, `index.html`, and `field-trip-ui.gs` together and deploy one new version. Current builds detect this mismatch at startup and show a clearer compatibility error.
 
 ### I copied the project to a different spreadsheet and it still opens the old workbook
 
