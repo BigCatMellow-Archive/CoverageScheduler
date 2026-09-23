@@ -16,13 +16,15 @@ function getFieldTripUi_() {
   .ft-plan-label{font-size:9px;font-weight:850;text-transform:uppercase;letter-spacing:.05em;color:#64748b}
   .ft-plan-value{margin-top:3px;font-size:11px;color:var(--text,#1f2937);line-height:1.4}
   .ft-plan-lines{margin-top:5px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden}
-  .ft-plan-line{display:grid;grid-template-columns:88px minmax(110px,1fr) minmax(120px,1fr) minmax(180px,1.5fr);gap:8px;align-items:start;padding:7px 8px;border-bottom:1px solid #edf0f4;font-size:10px;cursor:pointer}
+  .ft-plan-line{display:grid;grid-template-columns:88px minmax(110px,1fr) minmax(120px,1fr) minmax(180px,1.5fr) auto;gap:8px;align-items:start;padding:7px 8px;border-bottom:1px solid #edf0f4;font-size:10px;cursor:pointer}
   .ft-plan-line:last-child{border-bottom:0}
   .ft-plan-line:hover{background:#f7f8fb}
   .ft-plan-who{font-weight:750;color:var(--text,#1f2937)}
   .ft-plan-cover{font-weight:800;color:var(--primary,#214289)}
   .ft-plan-cover.unfilled{color:var(--error,#dc2626)}
   .ft-plan-why{color:var(--text-muted,#6b7280);line-height:1.35}
+  .ft-plan-change{border:1px solid #d7dce5;background:#fff;color:var(--primary,#214289);border-radius:6px;padding:3px 6px;font-size:9px;font-weight:800;cursor:pointer;white-space:nowrap}
+  .ft-plan-change:hover{border-color:var(--primary,#214289);background:rgba(33,66,137,.045)}
   .ft-plan-none{margin-top:5px;padding:7px 8px;border-radius:8px;background:#f7f8fb;color:var(--text-muted,#6b7280);font-size:10px}
   .ft-grade-grid{display:flex;flex-wrap:wrap;gap:6px}
   .ft-grade-check{position:relative}
@@ -305,7 +307,7 @@ function getFieldTripUi_() {
             var classText=r.Class||r.Subject||r.Assignment_Type||'Coverage block';
             var coverage=r.Assigned_Coverage||'Unfilled';
             var why=String(r.Notes||'').trim()||'No scheduling explanation recorded.';
-            return '<div class="ft-plan-line" data-ft-plan-block="'+item.index+'"><span class="mono">'+esc(timeDisplay(r.Start))+'–'+esc(timeDisplay(r.End))+'</span><span class="ft-plan-who">'+esc(r.Absent_Staff)+' · '+esc(classText)+'</span><span class="ft-plan-cover '+(r.Assigned_Coverage?'':'unfilled')+'">'+esc(coverage)+'</span><span class="ft-plan-why">'+esc(why)+'</span></div>';
+            return '<div class="ft-plan-line" data-ft-plan-block="'+item.index+'"><span class="mono">'+esc(timeDisplay(r.Start))+'–'+esc(timeDisplay(r.End))+'</span><span class="ft-plan-who">'+esc(r.Absent_Staff)+' · '+esc(classText)+'</span><span class="ft-plan-cover '+(r.Assigned_Coverage?'':'unfilled')+'">'+esc(coverage)+'</span><span class="ft-plan-why">'+esc(why)+'</span><button type="button" class="ft-plan-change" data-ft-plan-block="'+item.index+'">Change</button></div>';
           }).join('')+'</div>'
         : '<div class="ft-plan-none">No field-trip coverage rows are in the current plan. <button type="button" class="ft-plan-edit" data-ft-generate-plan="1" style="margin-left:6px">Generate Coverage Plan</button></div>';
 
@@ -316,7 +318,7 @@ function getFieldTripUi_() {
       return '<div class="ft-plan-card">'+
         '<div class="ft-plan-hd"><div><div class="ft-plan-title">'+esc(trip.name||'Field Trip')+' <span class="ft-badge">Field Trip</span></div><div class="ft-plan-sub">Grades '+esc(grades||'—')+' · '+esc(tripWindowText(trip))+'</div></div><div class="sp-r"></div><button class="ft-plan-edit" data-plan-edit-fieldtrip="'+esc(trip.eventId)+'">View / Edit Trip</button></div>'+
         '<div class="ft-plan-section"><div class="ft-plan-label">Staff on trip</div><div class="ft-plan-value">'+esc(onTrip.length?onTrip.join(', '):'No staff selected')+'</div></div>'+
-        '<div class="ft-plan-section"><div class="ft-plan-label">Coverage plan for classes still at school · assignment / why available</div>'+assignments+'</div>'+
+        '<div class="ft-plan-section"><div class="ft-plan-label">Coverage plan for classes still at school · assignment / why available</div><div class="ft-plan-value" style="margin-bottom:4px;color:var(--text-muted,#6b7280)">Use <strong>Change</strong> to manually place another eligible person. Absent or conflicting staff will not be offered.</div>'+assignments+'</div>'+
         '<div class="ft-plan-section"><div class="ft-plan-label">Scheduling rule</div>'+poolNote+'</div>'+
       '</div>';
     }).join('')+'</div>';
