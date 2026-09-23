@@ -134,12 +134,28 @@
 <div id="blockModal" class="overlay hidden"><div class="modal modal-sm"><div class="m-hd"><h2>Reassign Block</h2><button class="m-x" data-close="blockModal">×</button></div><div class="m-body"><div id="blockInfo" class="block-info"></div><div class="fg"><label class="fl">Assign Coverage To</label><select id="blockCoverage" class="fs"></select><div id="blockCoverageHint" class="hint">Only staff who are actually available for this exact block will appear.</div></div></div><div class="m-ft"><div class="sp-r"></div><button class="btn-cancel" data-close="blockModal">Cancel</button><button id="saveBlockBtn" class="btn-save">Save Assignment</button></div></div></div>
 
 <script>
+const REQUIRED_WEB_API_VERSION=3;
 const S={date:'',day:'',allStaff:[],coverage:[],fieldTripCoverage:[],absences:[],fieldTrips:[],plan:[],view:'timeline',generating:false,editingAbsence:null,editingCoverage:null,editingBlock:null,pendingDelete:null};
 const $=id=>document.getElementById(id);
 const DAY_NAMES={M:'Monday',T:'Tuesday',W:'Wednesday',R:'Thursday',F:'Friday'};
 const esc=value=>String(value==null?'':value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 
-function gas(method,payload){return new Promise((resolve,reject)=>{const runner=google.script.run.withSuccessHandler(resolve).withFailureHandler(err=>reject(new Error(err&&err.message?err.message:String(err))));runner[method](payload);});}
+function gas(method,payload){
+  return new Promise((resolve,reject)=>{
+    const runner=google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(err=>reject(new Error(err&&err.message?err.message:String(err))));
+    const fn=runner[method];
+    if(typeof fn!=='function'){
+      reject(new Error(
+        'Coverage Scheduler deployment is out of sync: the browser is calling "'+method+
+        '" but the deployed server does not provide it. Deploy the current code.gs, scheduler.gs, index.html, and field-trip-ui.gs together as one new version.'
+      ));
+      return;
+    }
+    fn.call(runner,payload);
+  });
+}
 function dayFromDate(date){const d=new Date(date+'T12:00:00');return ['U','M','T','W','R','F','S'][d.getDay()]||'';}
 function showModal(id){$(id).classList.remove('hidden')}function closeModal(id){$(id).classList.add('hidden')}
 function flash(message,type='ok'){const n=$('notif');n.className='notif '+type;n.innerHTML=(type==='ok'?'✓ ':type==='warn'?'⚠ ':'✗ ')+esc(message)+'<button onclick="this.parentElement.classList.add(\'hidden\')">×</button>';n.classList.remove('hidden');clearTimeout(flash.t);flash.t=setTimeout(()=>n.classList.add('hidden'),5200)}
@@ -150,7 +166,38 @@ function rosterMatch(staffName){return S.allStaff.find(x=>x.scheduleName===staff
 function coverageChoices(){const seen={};return S.coverage.concat(S.fieldTripCoverage||[]).filter(c=>{if(!c||!c.name||seen[c.name])return false;seen[c.name]=true;return true})}
 function coverageMatch(name){return coverageChoices().find(x=>x.name===name)||null}
 
-async function bootstrap(date){try{setLoading(true);const d=date||S.date||'';const day=d?dayFromDate(d):'';const data=await gas('webGetBootstrap',{date:d,day});S.date=data.today;S.day=data.day;S.allStaff=data.allStaff||[];S.coverage=data.allCoverageStaff||[];S.fieldTripCoverage=data.fieldTripCoverageStaff||[];S.absences=normalizeAbsences(data.currentAbsences||[]);S.fieldTrips=data.currentFieldTrips||[];S.plan=(data.currentPreview&&data.currentPreview.rows)||[];$('dateInput').value=S.date;renderAll();}catch(e){renderFatal(e);fail(e)}finally{setLoading(false)}}
+async function bootstrap(date){
+  try{
+    setLoading(true);
+    const d=date||S.date||'';
+    const day=d?dayFromDate(d):'';
+    const data=await gas('webGetBootstrap',{date:d,day});
+    const serverVersion=Number(data&&data.webApiVersion||0);
+    if(serverVersion!==REQUIRED_WEB_API_VERSION){
+      throw new Error(
+        'Coverage Scheduler deployment is out of sync. This UI requires server API '+
+        REQUIRED_WEB_API_VERSION+' but the deployed server reports '+
+        (serverVersion||'a legacy version')+
+        '. Deploy the current code.gs, scheduler.gs, index.html, and field-trip-ui.gs together as one new version.'
+      );
+    }
+    S.date=data.today;
+    S.day=data.day;
+    S.allStaff=data.allStaff||[];
+    S.coverage=data.allCoverageStaff||[];
+    S.fieldTripCoverage=data.fieldTripCoverageStaff||[];
+    S.absences=normalizeAbsences(data.currentAbsences||[]);
+    S.fieldTrips=data.currentFieldTrips||[];
+    S.plan=(data.currentPreview&&data.currentPreview.rows)||[];
+    $('dateInput').value=S.date;
+    renderAll();
+  }catch(e){
+    renderFatal(e);
+    fail(e);
+  }finally{
+    setLoading(false);
+  }
+}
 function normalizeAbsences(rows){return rows.map(a=>({staffName:a.staffName,absenceType:a.emergency?'Emergency':(a.absenceType||'Full Day'),allDay:a.emergency||String(a.absenceType||'').toLowerCase()==='full day',emergency:!!a.emergency,startOverride:a.startOverride||'',endOverride:a.endOverride||'',preferredCoverage:a.preferredCoverage||'',notes:a.notes||''}))}
 function setLoading(on){S.generating=on;$('generateBtn').disabled=on;$('generateBtn').textContent=on?'Loading…':(S.plan.length?'Re-generate':'Generate Plan')}
 function renderFatal(err){$('planBody').innerHTML='<div class="error-box"><h3>Coverage Scheduler could not load</h3><p>'+esc(err.message||err)+'</p></div>'}
