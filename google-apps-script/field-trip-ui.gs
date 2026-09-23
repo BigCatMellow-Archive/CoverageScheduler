@@ -5,27 +5,6 @@ function getFieldTripUi_() {
   .field-trip-row{border-left:3px solid var(--accent,#f6b756)}
   .ft-meta{margin-top:4px;font-size:10px;color:var(--text-muted,#6b7280);line-height:1.35}
   .ft-people{margin-top:4px;font-size:10px;color:var(--text,#1f2937);line-height:1.35}
-  .ft-plan-wrap{margin:0 0 14px}
-  .ft-plan-card{margin-bottom:10px;padding:12px 13px;background:#fff;border:1px solid var(--border,#e2e5eb);border-left:4px solid var(--accent,#f6b756);border-radius:10px;box-shadow:var(--shadow-card,0 2px 5px rgba(0,0,0,.06))}
-  .ft-plan-hd{display:flex;align-items:flex-start;gap:10px}
-  .ft-plan-title{font-size:13px;font-weight:850;color:var(--text,#1f2937)}
-  .ft-plan-sub{margin-top:2px;font-size:10px;color:var(--text-muted,#6b7280)}
-  .ft-plan-edit{border:1px solid #d7dce5;background:#fff;color:var(--primary,#214289);border-radius:7px;padding:5px 8px;font-size:10px;font-weight:800;cursor:pointer}
-  .ft-plan-edit:hover{border-color:var(--primary,#214289);background:rgba(33,66,137,.045)}
-  .ft-plan-section{margin-top:9px}
-  .ft-plan-label{font-size:9px;font-weight:850;text-transform:uppercase;letter-spacing:.05em;color:#64748b}
-  .ft-plan-value{margin-top:3px;font-size:11px;color:var(--text,#1f2937);line-height:1.4}
-  .ft-plan-lines{margin-top:5px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden}
-  .ft-plan-line{display:grid;grid-template-columns:88px minmax(110px,1fr) minmax(120px,1fr) minmax(180px,1.5fr) auto;gap:8px;align-items:start;padding:7px 8px;border-bottom:1px solid #edf0f4;font-size:10px;cursor:pointer}
-  .ft-plan-line:last-child{border-bottom:0}
-  .ft-plan-line:hover{background:#f7f8fb}
-  .ft-plan-who{font-weight:750;color:var(--text,#1f2937)}
-  .ft-plan-cover{font-weight:800;color:var(--primary,#214289)}
-  .ft-plan-cover.unfilled{color:var(--error,#dc2626)}
-  .ft-plan-why{color:var(--text-muted,#6b7280);line-height:1.35}
-  .ft-plan-change{border:1px solid #d7dce5;background:#fff;color:var(--primary,#214289);border-radius:6px;padding:3px 6px;font-size:9px;font-weight:800;cursor:pointer;white-space:nowrap}
-  .ft-plan-change:hover{border-color:var(--primary,#214289);background:rgba(33,66,137,.045)}
-  .ft-plan-none{margin-top:5px;padding:7px 8px;border-radius:8px;background:#f7f8fb;color:var(--text-muted,#6b7280);font-size:10px}
   .ft-grade-grid{display:flex;flex-wrap:wrap;gap:6px}
   .ft-grade-check{position:relative}
   .ft-grade-check input{position:absolute;opacity:0;pointer-events:none}
