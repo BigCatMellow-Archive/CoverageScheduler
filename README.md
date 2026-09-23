@@ -99,6 +99,8 @@ Use whichever view is easiest:
 - **Table** — useful for checking every block.
 - **By Sub** — useful for seeing one coverage person's workload.
 
+Field-trip rows use these same views and controls. When a day includes field-trip coverage, those rows are grouped under **Field Trip · <event name>** so the source is obvious without creating a second coverage interface.
+
 Pay special attention to anything marked **Unfilled**.
 
 ### 6. Make manual adjustments if needed
@@ -179,11 +181,11 @@ That means:
 - If the field-trip pool cannot cover a block, the scheduler falls back to the normal Coverage Staff pool.
 - The finished result appears in the normal coverage plan with a specific person assigned to each remaining class, or **Unfilled** if no eligible person exists.
 
-Field trips have stable event IDs and can be edited as one event from the **Calendar** or directly from the field-trip card in the daily coverage plan. The plan card shows the staff on the trip by name, teachers released to help because their trip-grade classes were cancelled, and the coverage assignment for each remaining class. Clicking a coverage line opens the normal manual reassignment editor. Changing the staff, grade, dates, or times changes the scheduling consequences the next time the plan is generated.
+Field trips have stable event IDs and can be edited as one event from **+ Field Trip**, the left-side field-trip entry, or the **Calendar**. After generation, field-trip coverage is not shown in a separate planner. Its rows appear in the normal Timeline, Table, and By Sub views under a lightweight **Field Trip** group labeled with the event name, grades, and active trip window. Those rows use the same click-to-reassign behavior as every other coverage row.
 
 ### Manual placement and absence safeguards
 
-Every generated coverage row can be manually reassigned. In the field-trip card, use **Change** on the row; the regular table/timeline rows also open the same reassignment control.
+Every generated coverage row can be manually reassigned through the normal coverage-plan row interaction, including rows grouped under a field trip.
 
 The manual picker is calculated from the live workbook for that exact block. It may include:
 - teachers released because the trip cancelled their trip-grade class;
