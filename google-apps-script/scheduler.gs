@@ -837,10 +837,8 @@ function findOpenBreakSlotInReleasedRow_(candidateName, releasedRow, durationMin
     endMinutes: item.endMinutes
   }));
 
-  const absence = state && state.absencesByCandidate
-    ? state.absencesByCandidate[candidateName]
-    : null;
-  if (absence) {
+  const absenceWindows = absenceWindowsForCandidate_(candidateName, state);
+  for (const absence of absenceWindows) {
     if (absence.allDay) return null;
     if (absence.startMinutes == null || absence.endMinutes == null) return null;
     busy.push({
@@ -1171,6 +1169,322 @@ function candidateFieldTripAvailability_(candidate, block, availabilityRows, sta
   };
 }
 
+function planRowToCoverageBlock_(row) {
+  row = row || {};
+  return {
+    staffName: String(row.Absent_Staff || '').trim(),
+    startMinutes: displayTimeToMinutes_(row.Start),
+    endMinutes: displayTimeToMinutes_(row.End),
+    className: String(row.Class || '').trim(),
+    grade: String(row.Grade || '').trim() || inferGradeFromClass_(row.Class || ''),
+    subject: String(row.Subject || '').trim(),
+    assignmentType: String(row.Assignment_Type || '').trim() || 'Class',
+    room: String(row.Room || '').trim(),
+    fieldTripEventId: String(row.Event_ID || '').trim(),
+    emergencyOverride: false
+  };
+}
+
+function makeManualScheduleCandidate_(name, role) {
+  return {
+    name: String(name || '').trim(),
+    role: String(role || 'Staff').trim(),
+    tier: 3,
+    canCoverAllDay: false,
+    baseActive: true,
+    activeToday: true,
+    availableDays: '*',
+    defaultStart: '',
+    defaultEnd: '',
+    selectedStart: '',
+    selectedEnd: '',
+    hasDateOverride: false,
+    availabilityNotes: '',
+    allowedGrades: '*',
+    allowedSubjects: '*',
+    allowedAssignmentTypes: '*',
+    maxBlocksPerDay: Infinity,
+    maxTeachersPerDay: Infinity,
+    canBeSplitAcrossTeachers: true,
+    notes: 'Manual placement candidate derived from Teacher Schedule.',
+    fieldTripEvents: [],
+    fieldTripOnly: false,
+    manualSource: 'Available Staff'
+  };
+}
+
+function buildManualCoverageCandidates_(date, day, config, fieldTrips, teacherSchedule) {
+  const configuredCoverageStaff = getCoverageStaffForDate_(date, day, config);
+  const activeCoverageStaff = configuredCoverageStaff.filter(row => row.name && row.activeToday);
+
+  const automaticPool = buildFieldTripCoverageCandidates_(
+    fieldTrips,
+    teacherSchedule,
+    day,
+    activeCoverageStaff,
+    configuredCoverageStaff
+  );
+
+  const configuredNames = {};
+  configuredCoverageStaff.forEach(candidate => {
+    if (candidate && candidate.name) configuredNames[candidate.name] = candidate;
+  });
+
+  const byName = {};
+  automaticPool.forEach(candidate => {
+    const copy = Object.assign({}, candidate);
+    copy.manualSource = (copy.fieldTripEvents || []).length
+      ? 'Field Trip Pool'
+      : 'Coverage Staff';
+    byName[copy.name] = copy;
+  });
+
+  teacherSchedule
+    .map(row => normalizeTeacherScheduleRow_(row))
+    .filter(row => row.day === day && row.staffName)
+    .forEach(row => {
+      if (byName[row.staffName]) return;
+
+      // If this person is explicitly managed in Coverage Staff and has been
+      // marked unavailable for the date, do not reintroduce them through their
+      // Teacher Schedule row.
+      if (configuredNames[row.staffName] && !configuredNames[row.staffName].activeToday) return;
+
+      const candidate = makeManualScheduleCandidate_(row.staffName, row.role || 'Staff');
+      if (configuredNames[row.staffName]) candidate.manualSource = 'Coverage Staff';
+      byName[row.staffName] = candidate;
+    });
+
+  return Object.keys(byName)
+    .map(name => byName[name])
+    .filter(candidate => candidate && candidate.name);
+}
+
+function manualCoverageStateFromPlan_(planRows, excludedIndex, candidates, teacherSchedule, day, effectiveAbsences) {
+  const state = makeEmptyState_();
+  state.absencesByCandidate = buildAbsenceWindowsByStaff_(effectiveAbsences);
+
+  const candidateByName = {};
+  (candidates || []).forEach(candidate => {
+    if (candidate && candidate.name) candidateByName[candidate.name] = candidate;
+  });
+
+  (planRows || [])
+    .map((row, index) => ({ row: row || {}, index: index }))
+    .filter(item =>
+      item.index !== excludedIndex &&
+      String(item.row.Status || '').trim() === 'Assigned' &&
+      String(item.row.Assigned_Coverage || '').trim()
+    )
+    .sort((a, b) => {
+      const ab = planRowToCoverageBlock_(a.row);
+      const bb = planRowToCoverageBlock_(b.row);
+      return (ab.startMinutes || 0) - (bb.startMinutes || 0) ||
+        (ab.endMinutes || 0) - (bb.endMinutes || 0) ||
+        a.index - b.index;
+    })
+    .forEach(item => {
+      const name = String(item.row.Assigned_Coverage || '').trim();
+      const block = planRowToCoverageBlock_(item.row);
+      if (!name || block.startMinutes == null || block.endMinutes == null) return;
+
+      let candidate = candidateByName[name] || makeManualScheduleCandidate_(name, 'Staff');
+
+      // Reconstruct any field-trip break reservation used by an existing row
+      // so later manual choices cannot consume that replacement break.
+      const availability = candidateAvailabilityForBlock_(
+        candidate,
+        block,
+        teacherSchedule,
+        day,
+        state
+      );
+      if (availability && availability.fieldTripBreakMove) {
+        candidate = Object.assign({}, candidate, {
+          fieldTripBreakMove: availability.fieldTripBreakMove
+        });
+      }
+
+      recordAssignment_(
+        state,
+        candidate,
+        block,
+        String(item.row.Absent_Staff || '').trim()
+      );
+    });
+
+  return state;
+}
+
+function manualCoverageContext_(payload) {
+  payload = payload || {};
+  const date = normalizeDateKey_(payload.date);
+  const day = String(payload.day || guessDayCodeFromDate_(date) || '').trim();
+  const planRows = Array.isArray(payload.rows) ? payload.rows : [];
+  const blockIndex = Number(payload.blockIndex);
+  if (!date) throw new Error('Choose a valid date before reassigning coverage.');
+  if (!day) throw new Error('The selected date does not have a valid school-day code.');
+  if (!Number.isInteger(blockIndex) || blockIndex < 0 || blockIndex >= planRows.length) {
+    throw new Error('The coverage block could not be identified.');
+  }
+
+  const row = planRows[blockIndex] || {};
+  const block = planRowToCoverageBlock_(row);
+  if (block.startMinutes == null || block.endMinutes == null) {
+    throw new Error('The selected coverage block has an invalid start or end time.');
+  }
+
+  const config = getConfigMap_();
+  const teacherSchedule = filterTeacherScheduleForDate_(
+    readSheetObjects_('Teacher Schedule'),
+    date,
+    config
+  );
+  const absences = getDailyAbsencesForDate_(date, day);
+  const fieldTrips = getFieldTripsForDate_(date);
+  const effectiveAbsences = absences.concat(buildFieldTripParticipantAbsences_(fieldTrips));
+  const candidates = buildManualCoverageCandidates_(
+    date,
+    day,
+    config,
+    fieldTrips,
+    teacherSchedule
+  );
+  const state = manualCoverageStateFromPlan_(
+    planRows,
+    blockIndex,
+    candidates,
+    teacherSchedule,
+    day,
+    effectiveAbsences
+  );
+
+  return {
+    date: date,
+    day: day,
+    row: row,
+    block: block,
+    config: config,
+    teacherSchedule: teacherSchedule,
+    absences: absences,
+    fieldTrips: fieldTrips,
+    effectiveAbsences: effectiveAbsences,
+    candidates: candidates,
+    state: state
+  };
+}
+
+function getManualCoverageChoices_(payload) {
+  const context = manualCoverageContext_(payload);
+  const row = context.row;
+  const block = context.block;
+  const absentName = String(row.Absent_Staff || '').trim();
+  const currentName = String(row.Assigned_Coverage || '').trim();
+  const choices = [];
+  const absentDuringBlock = [];
+
+  context.candidates.forEach(candidate => {
+    if (!candidate || !candidate.name || candidate.name === absentName) return;
+
+    if (candidateIsAbsentForBlock_(candidate.name, block, context.state)) {
+      absentDuringBlock.push(candidate.name);
+      return;
+    }
+
+    if (!candidateCanCoverBlock_(
+      candidate,
+      absentName,
+      block,
+      context.teacherSchedule,
+      context.day,
+      context.state,
+      context.config
+    )) return;
+
+    const availability = candidateAvailabilityForBlock_(
+      candidate,
+      block,
+      context.teacherSchedule,
+      context.day,
+      context.state
+    );
+
+    const fieldTripPool = !!(
+      block.fieldTripEventId &&
+      candidateHasFieldTripEvent_(candidate, block.fieldTripEventId)
+    );
+    const source = fieldTripPool
+      ? 'Field Trip Pool'
+      : (candidate.manualSource || 'Available Staff');
+
+    const scoreInfo = scoreCandidateForBlock_(candidate, absentName, block, context.state);
+    const fieldTripBoost = Number(availability.fieldTripPriority || 0) * 250;
+    const runwayBoost = Math.min(Math.max(0, Number(availability.fieldTripRunwayMinutes || 0)), 60);
+
+    choices.push({
+      name: candidate.name,
+      role: candidate.role || '',
+      tier: candidate.tier,
+      source: source,
+      recommended: fieldTripPool,
+      reason: availability.fieldTripReason ||
+        (candidate.canCoverAllDay
+          ? 'Available as Coverage Staff for the full block.'
+          : 'Available during a cover-eligible schedule block.'),
+      score: scoreInfo.score + fieldTripBoost + runwayBoost
+    });
+  });
+
+  choices.sort((a, b) => {
+    const sourceRank = source => source === 'Field Trip Pool' ? 0 : source === 'Coverage Staff' ? 1 : 2;
+    return sourceRank(a.source) - sourceRank(b.source) ||
+      b.score - a.score ||
+      a.name.localeCompare(b.name);
+  });
+
+  return {
+    date: context.date,
+    day: context.day,
+    blockIndex: Number(payload.blockIndex),
+    currentName: currentName,
+    currentEligible: !currentName || choices.some(choice => choice.name === currentName),
+    choices: choices,
+    excludedAbsentNames: Array.from(new Set(absentDuringBlock)).sort()
+  };
+}
+
+function validateManualCoverageAssignment_(payload) {
+  payload = payload || {};
+  const name = String(payload.name || '').trim();
+
+  if (!name) {
+    return {
+      valid: true,
+      name: '',
+      tier: '',
+      source: '',
+      reason: 'Manually left unfilled.'
+    };
+  }
+
+  const result = getManualCoverageChoices_(payload);
+  const choice = result.choices.find(item => item.name === name);
+  if (!choice) {
+    if (result.excludedAbsentNames.indexOf(name) !== -1) {
+      throw new Error(name + ' is absent during this coverage block and cannot be assigned.');
+    }
+    throw new Error(name + ' is not available for this coverage block because of schedule, absence, trip, or another coverage conflict.');
+  }
+
+  return {
+    valid: true,
+    name: choice.name,
+    tier: choice.tier,
+    source: choice.source,
+    reason: 'Manually assigned. ' + choice.reason
+  };
+}
+
 function scheduleFieldTripNeedsChronologically_(
   needsByTeacher,
   coverageStaff,
@@ -1353,13 +1667,30 @@ function generateCoveragePreview(payload) {
     if (!blocks.length) return;
 
     const candidate = coverageStaff.find(c => c.name === preferred);
-    const candidateInfo = candidate
-      ? { name: candidate.name, tier: candidate.tier, role: candidate.role }
-      : { name: preferred, tier: '', role: '' };
+
+    // A preferred/manual person is a preference, not permission to bypass
+    // absences, schedule conflicts, availability windows, or daily limits.
+    if (!candidate || !candidateCanCoverAllBlocks_(
+      candidate,
+      absentName,
+      blocks,
+      teacherSchedule,
+      day,
+      state,
+      config
+    )) {
+      return;
+    }
+
+    const candidateInfo = {
+      name: candidate.name,
+      tier: candidate.tier,
+      role: candidate.role
+    };
 
     blocks.forEach(block => {
-      planRows.push(makePlanRow_(date, day, block, candidateInfo, 'Manual', 'Assigned', 'Manually assigned to ' + preferred + '.'));
-      if (candidate) recordAssignment_(state, candidate, block, absentName);
+      planRows.push(makePlanRow_(date, day, block, candidateInfo, 'Manual', 'Assigned', 'Manually preferred: ' + preferred + '.'));
+      recordAssignment_(state, candidate, block, absentName);
     });
 
     summary.totalBlocks += blocks.length;
@@ -2129,43 +2460,60 @@ function makeEmptyState_() {
 
 function buildAbsenceWindowsByStaff_(absences) {
   const map = {};
+
   (absences || []).forEach(absence => {
     const name = String(absence.staffName || '').trim();
     if (!name) return;
+    if (!map[name]) map[name] = [];
 
     const type = String(absence.absenceType || 'Full Day').trim();
     if (type === 'Full Day') {
-      map[name] = { allDay: true, startMinutes: null, endMinutes: null };
+      map[name].push({
+        allDay: true,
+        startMinutes: null,
+        endMinutes: null,
+        source: String(absence.fieldTripEventId || absence.notes || 'Absence')
+      });
       return;
     }
 
-    map[name] = {
+    map[name].push({
       allDay: false,
       startMinutes: displayTimeToMinutes_(absence.startOverride),
-      endMinutes: displayTimeToMinutes_(absence.endOverride)
-    };
+      endMinutes: displayTimeToMinutes_(absence.endOverride),
+      source: String(absence.fieldTripEventId || absence.notes || 'Absence')
+    });
   });
+
   return map;
 }
 
-function candidateIsAbsentForBlock_(candidateName, block, state) {
-  const absence = state && state.absencesByCandidate
+function absenceWindowsForCandidate_(candidateName, state) {
+  const raw = state && state.absencesByCandidate
     ? state.absencesByCandidate[String(candidateName || '').trim()]
     : null;
+  if (!raw) return [];
+  return Array.isArray(raw) ? raw : [raw];
+}
 
-  if (!absence) return false;
-  if (absence.allDay) return true;
+function candidateIsAbsentForBlock_(candidateName, block, state) {
+  const windows = absenceWindowsForCandidate_(candidateName, state);
+  if (!windows.length) return false;
 
-  // If a partial absence is malformed, fail closed rather than scheduling
-  // an absent person as coverage.
-  if (absence.startMinutes == null || absence.endMinutes == null) return true;
+  return windows.some(absence => {
+    if (absence.allDay) return true;
 
-  return timesOverlap_(
-    absence.startMinutes,
-    absence.endMinutes,
-    block.startMinutes,
-    block.endMinutes
-  );
+    // If a partial absence is malformed, fail closed rather than scheduling
+    // an absent person as coverage.
+    if (absence.startMinutes == null || absence.endMinutes == null) return true;
+
+    return timesOverlap_(
+      absence.startMinutes,
+      absence.endMinutes,
+      block.startMinutes,
+      block.endMinutes
+    );
+  });
 }
 
 function makePlanRow_(date, day, block, candidate, coverageMode, status, notes) {
