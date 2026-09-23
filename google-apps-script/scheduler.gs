@@ -1227,7 +1227,7 @@ function buildManualCoverageCandidates_(date, day, config, fieldTrips, teacherSc
 
   const configuredNames = {};
   configuredCoverageStaff.forEach(candidate => {
-    if (candidate && candidate.name) configuredNames[candidate.name] = true;
+    if (candidate && candidate.name) configuredNames[candidate.name] = candidate;
   });
 
   const byName = {};
@@ -1244,6 +1244,12 @@ function buildManualCoverageCandidates_(date, day, config, fieldTrips, teacherSc
     .filter(row => row.day === day && row.staffName)
     .forEach(row => {
       if (byName[row.staffName]) return;
+
+      // If this person is explicitly managed in Coverage Staff and has been
+      // marked unavailable for the date, do not reintroduce them through their
+      // Teacher Schedule row.
+      if (configuredNames[row.staffName] && !configuredNames[row.staffName].activeToday) return;
+
       const candidate = makeManualScheduleCandidate_(row.staffName, row.role || 'Staff');
       if (configuredNames[row.staffName]) candidate.manualSource = 'Coverage Staff';
       byName[row.staffName] = candidate;
