@@ -181,6 +181,21 @@ That means:
 
 Field trips have stable event IDs and can be edited as one event from the **Calendar** or directly from the field-trip card in the daily coverage plan. The plan card shows the staff on the trip by name, teachers released to help because their trip-grade classes were cancelled, and the coverage assignment for each remaining class. Clicking a coverage line opens the normal manual reassignment editor. Changing the staff, grade, dates, or times changes the scheduling consequences the next time the plan is generated.
 
+### Manual placement and absence safeguards
+
+Every generated coverage row can be manually reassigned. In the field-trip card, use **Change** on the row; the regular table/timeline rows also open the same reassignment control.
+
+The manual picker is calculated from the live workbook for that exact block. It may include:
+- teachers released because the trip cancelled their trip-grade class;
+- active Coverage Staff;
+- other staff whose Teacher Schedule explicitly makes them cover-eligible at that time.
+
+It excludes anyone who is absent during any portion of the block, on the field trip, already covering another overlapping block, teaching/duty-bound at that time, outside an availability window, or explicitly marked unavailable in Coverage Staff.
+
+Manual placement does **not** bypass those safeguards. The server validates the selected person again when **Save Assignment** is pressed. Full-day and partial-day absences are both enforced, and multiple absence windows for the same person are retained instead of overwriting one another.
+
+The older **Preferred Coverage** setting on an absence follows the same rule: it is treated as a preference only when that person can validly cover the required blocks. Otherwise the normal scheduler takes over.
+
 ### Field-trip assignment priorities
 
 Field-trip coverage is scheduled across the **whole event in chronological order**, not one absent teacher at a time. This lets the scheduler make the same kind of continuity decisions a person would make when looking at the day as a whole.
