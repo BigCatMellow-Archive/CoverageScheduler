@@ -587,6 +587,16 @@ function webGenerateCoverage(payload) {
   return generateCoveragePreview(payload || {});
 }
 
+function webGetManualCoverageChoices(payload) {
+  ensureCoverageWorkbookReadyForWeb_();
+  return makeWebSafe_(getManualCoverageChoices_(payload || {}));
+}
+
+function webValidateManualCoverageAssignment(payload) {
+  ensureCoverageWorkbookReadyForWeb_();
+  return makeWebSafe_(validateManualCoverageAssignment_(payload || {}));
+}
+
 function webToggleCoverageStaff(payload) {
   ensureCoverageWorkbookReadyForWeb_();
   return toggleCoverageStaffActive(payload || {});
