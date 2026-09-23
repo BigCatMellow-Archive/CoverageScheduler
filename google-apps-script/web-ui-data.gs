@@ -123,7 +123,22 @@ function summarizeRosterSubjects_(blocks) {
   return subjects.slice(0, 2).join(' / ') + ' +' + (subjects.length - 2);
 }
 
+function parsePositiveWholeNumberField_(value, label) {
+  const raw = String(value == null ? '' : value).trim();
+  if (raw === '') return ''; // blank means no limit — preserved as-is downstream
+
+  const num = Number(raw);
+  if (!Number.isFinite(num) || !Number.isInteger(num) || num < 1) {
+    throw new Error(label + ' must be a whole number of 1 or more, or left blank for no limit.');
+  }
+  return String(num);
+}
+
 function saveCoverageStaffFromWeb_(payload) {
+  return withCoverageLock_(() => saveCoverageStaffFromWebUnlocked_(payload));
+}
+
+function saveCoverageStaffFromWebUnlocked_(payload) {
   payload = payload || {};
   const name = String(payload.name || '').trim();
   const originalName = String(payload.originalName || '').trim();
@@ -140,19 +155,36 @@ function saveCoverageStaffFromWeb_(payload) {
   if (nameCol === -1) throw new Error('Coverage Staff needs a Name column.');
 
   let targetRow = -1;
-  let duplicateRow = -1;
-  for (let r = 1; r < values.length; r++) {
-    const existingName = String(values[r][nameCol] || '').trim();
-    if (originalName && existingName === originalName) targetRow = r + 1;
-    if (!originalName && existingName === name) targetRow = r + 1;
-    if (existingName === name) duplicateRow = r + 1;
+  if (originalName) {
+    for (let r = 1; r < values.length; r++) {
+      if (String(values[r][nameCol] || '').trim() === originalName) {
+        targetRow = r + 1;
+        break;
+      }
+    }
   }
 
-  if (originalName && name !== originalName && duplicateRow !== -1 && duplicateRow !== targetRow) {
+  let duplicateRow = -1;
+  for (let r = 1; r < values.length; r++) {
+    if (r + 1 === targetRow) continue;
+    if (String(values[r][nameCol] || '').trim() === name) {
+      duplicateRow = r + 1;
+      break;
+    }
+  }
+
+  // This must reject a collision whether we're adding a brand-new person
+  // (originalName blank) or renaming an existing one into another name
+  // that's already taken — either way, writing to targetRow would silently
+  // overwrite that other person's tier, availability, and restrictions.
+  if (duplicateRow !== -1) {
     throw new Error('A coverage staff member named ' + name + ' already exists.');
   }
 
   if (targetRow === -1) targetRow = sheet.getLastRow() + 1;
+
+  const maxBlocksPerDay = parsePositiveWholeNumberField_(payload.maxBlocksPerDay, 'Max Blocks Per Day');
+  const maxTeachersPerDay = parsePositiveWholeNumberField_(payload.maxTeachersPerDay, 'Max Teachers Per Day');
 
   const rowObject = {
     Name: name,
@@ -166,8 +198,8 @@ function saveCoverageStaffFromWeb_(payload) {
     Allowed_Grades: String(payload.allowedGrades || '').trim(),
     Allowed_Subjects: String(payload.allowedSubjects || '').trim(),
     Allowed_Assignment_Types: String(payload.allowedAssignmentTypes || '').trim(),
-    Max_Blocks_Per_Day: String(payload.maxBlocksPerDay || '').trim(),
-    Max_Teachers_Per_Day: String(payload.maxTeachersPerDay || '').trim(),
+    Max_Blocks_Per_Day: maxBlocksPerDay,
+    Max_Teachers_Per_Day: maxTeachersPerDay,
     Can_Be_Split_Across_Teachers: normalizeYesNo_(payload.canBeSplitAcrossTeachers, true) ? 'Yes' : 'No',
     Notes: String(payload.notes || '').trim()
   };
@@ -184,6 +216,10 @@ function saveCoverageStaffFromWeb_(payload) {
 }
 
 function deleteCoverageStaffFromWeb_(payload) {
+  return withCoverageLock_(() => deleteCoverageStaffFromWebUnlocked_(payload));
+}
+
+function deleteCoverageStaffFromWebUnlocked_(payload) {
   payload = payload || {};
   const name = String(payload.name || '').trim();
   if (!name) throw new Error('No coverage staff name provided.');

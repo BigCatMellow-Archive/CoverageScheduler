@@ -130,11 +130,11 @@ const DEFAULT_LISTS = {
 const DEFAULT_CONFIG = [
   ['Whole_Day_First', 'TRUE', 'Try to assign one coverage person to the entire absent day before splitting blocks.'],
   ['Allow_Split_Coverage', 'TRUE', 'Allow split coverage across multiple people when needed.'],
-  ['Default_Max_Blocks_Per_Day', '8', 'Optional fallback only; blank Coverage Staff limits can be treated as no limit by the scheduler.'],
-  ['Default_Max_Teachers_Per_Day', '2', 'Optional fallback only; blank Coverage Staff limits can be treated as no limit by the scheduler.'],
-  ['Use_Lunch_For_Coverage', 'FALSE', 'Whether lunch blocks should be treated as cover-eligible when marked that way.'],
-  ['Availability_Override_Mode', 'DATE', 'Substitute Availability rows override default Coverage Staff availability for the selected date.'],
-  ['Script_Time_Zone', Session.getScriptTimeZone(), 'Spreadsheet time zone used for date and time conversion.']
+  ['Default_Max_Blocks_Per_Day', '8', 'Most blocks one Coverage Staff person covers per day when their own Max_Blocks_Per_Day is blank. Leave this blank for no limit.'],
+  ['Default_Max_Teachers_Per_Day', '2', 'Most different absent teachers one Coverage Staff person covers per day when their own Max_Teachers_Per_Day is blank. Leave this blank for no limit.'],
+  ['Use_Lunch_For_Coverage', 'FALSE', 'TRUE: people can be assigned during their lunch unless Cover_Eligible_This_Block says No. FALSE: lunch is protected unless a row is explicitly marked Cover_Eligible_This_Block = Yes.'],
+  ['Availability_Override_Mode', 'DATE', 'DATE: Substitute Availability rows and the web app availability switches override Coverage Staff defaults for that date. OFF: ignore them and use Coverage Staff defaults only.'],
+  ['Script_Time_Zone', Session.getScriptTimeZone(), 'Time zone for reading and showing dates and times, e.g. America/New_York. Keep it equal to the spreadsheet time zone (File > Settings). Unrecognized names are ignored.']
 ];
 
 function setupCoverageWorkbook() {
@@ -239,6 +239,16 @@ function seedConfig_() {
   if (rowsToAdd.length) {
     sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAdd.length, 3).setValues(rowsToAdd);
   }
+
+  // Keep descriptions of known settings current (values are never touched),
+  // so the sheet explains what each setting actually does.
+  existing.forEach((name, index) => {
+    const known = DEFAULT_CONFIG.find(row => row[0] === String(name).trim());
+    if (!known) return;
+    const cell = sheet.getRange(index + 2, 3);
+    if (String(cell.getValue() || '') !== known[2]) cell.setValue(known[2]);
+  });
+  COVERAGE_CONFIG_CACHE_ = null;
 }
 
 function applyDataValidation_() {

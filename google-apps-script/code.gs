@@ -1,4 +1,4 @@
-const COVERAGE_WEB_API_VERSION = 3;
+const COVERAGE_WEB_API_VERSION = 4;
 
 const APP_TITLE = 'Coverage Scheduler';
 const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
@@ -10,16 +10,11 @@ function onOpen() {
     .createMenu(APP_TITLE)
     .addItem('Set up workbook', 'setupCoverageScheduler')
     .addItem('Validate teacher schedule', 'menuValidateTeacherScheduleSource')
-    .addItem('Open coverage panel', 'openCoveragePanel')
     .addSeparator()
     .addItem('Generate preview for selected day', 'generateCoveragePreviewFromPrompt')
     .addItem('Create handout doc from latest preview', 'menuCreateHandoutDoc')
     .addItem('Clear Coverage Output', 'clearCoverageOutput')
     .addToUi();
-}
-
-function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
 function rememberCoverageSpreadsheet_() {
@@ -312,8 +307,8 @@ function getAbsenceRangeUi_() {
     '  };',
     '',
     '  var baseOpenAbsence=openAbsence;',
-    '  openAbsence=function(staffName){',
-    '    baseOpenAbsence(staffName);',
+    '  openAbsence=function(index){',
+    '    baseOpenAbsence(index);',
     '    var editing=!!S.editingAbsence;',
     "    range.classList.toggle('hidden',editing);",
     "    var sub=document.querySelector('#absenceModal .m-sub');",
@@ -428,7 +423,7 @@ function makeWebSafe_(value) {
 
   if (Object.prototype.toString.call(value) === '[object Date]') {
     if (isNaN(value.getTime())) return '';
-    const timeZone = Session.getScriptTimeZone();
+    const timeZone = coverageTimeZone_();
     const year = Number(Utilities.formatDate(value, timeZone, 'yyyy'));
     return year <= 1900
       ? Utilities.formatDate(value, timeZone, 'h:mm a')
@@ -460,7 +455,7 @@ function makeWebSafe_(value) {
 
 function webGetBootstrap(payload) {
   ensureCoverageWorkbookReadyForWeb_();
-  const data = getSidebarBootstrap(payload || {});
+  const data = getCoverageBootstrap_(payload || {});
   if (!data) {
     throw new Error('Coverage Scheduler could not build its startup data.');
   }
@@ -539,6 +534,11 @@ function parseAbsenceRangeDate_(value) {
 
 function webSaveAbsenceRange(payload) {
   ensureCoverageWorkbookReadyForWeb_();
+  return withCoverageLock_(() => webSaveAbsenceRangeUnlocked_(payload));
+}
+
+function webSaveAbsenceRangeUnlocked_(payload) {
+  ensureCoverageWorkbookReadyForWeb_();
   payload = payload || {};
 
   const start = parseAbsenceRangeDate_(payload.startDate);
@@ -555,7 +555,7 @@ function webSaveAbsenceRange(payload) {
     throw new Error('Please keep one absence entry to 63 calendar days or fewer.');
   }
 
-  const timeZone = Session.getScriptTimeZone();
+  const timeZone = coverageTimeZone_();
   const savedDates = [];
   const cursor = new Date(start.getTime());
 
@@ -565,10 +565,17 @@ function webSaveAbsenceRange(payload) {
       const dateKey = Utilities.formatDate(cursor, timeZone, 'yyyy-MM-dd');
       const day = guessDayCodeFromDate_(dateKey);
       if (day) {
-        let current = getDailyAbsencesForDate_(dateKey, day) || [];
-        current = current.filter(row => String(row.staffName || '').trim() !== staffName);
-        current.push(absence);
-        replaceDailyAbsences({ date: dateKey, day: day, absences: current });
+        // This entry point only ever creates a new absence window (the
+        // browser routes edits of an existing entry through
+        // webSaveAbsences/replaceDailyAbsences with the full edited list
+        // instead), so it must add alongside any existing windows for this
+        // person on this date rather than replacing them.
+        const current = getDailyAbsencesForDate_(dateKey, day) || [];
+        // A double-click or retry must not store the same window twice.
+        if (!current.some(existing => sameAbsenceWindow_(existing, absence))) {
+          current.push(absence);
+          replaceDailyAbsences({ date: dateKey, day: day, absences: current });
+        }
         savedDates.push(dateKey);
       }
     }
@@ -666,14 +673,6 @@ function webValidateTeacherSchedule() {
   return validateTeacherScheduleSource_();
 }
 
-function openCoveragePanel() {
-  const html = HtmlService.createTemplateFromFile('sidebar')
-    .evaluate()
-    .setTitle(APP_TITLE)
-    .setWidth(420);
-  SpreadsheetApp.getUi().showSidebar(html);
-}
-
 function generateCoveragePreviewFromPrompt() {
   const ui = SpreadsheetApp.getUi();
   const datePrompt = ui.prompt('Generate Coverage Preview', 'Enter date as YYYY-MM-DD', ui.ButtonSet.OK_CANCEL);
@@ -690,14 +689,14 @@ function generateCoveragePreviewFromPrompt() {
   const result = generateCoveragePreview({ date: dateStr, day: dayCode });
   ui.alert(
     'Preview complete',
-    'Generated ' + result.summary.totalBlocks + ' block(s). Open the sidebar to review or save the plan.',
+    'Generated ' + result.summary.totalBlocks + ' block(s). Open the Coverage Scheduler web app to review, adjust, and save the plan.',
     ui.ButtonSet.OK
   );
 }
 
-function getSidebarBootstrap(payload) {
+function getCoverageBootstrap_(payload) {
   payload = payload || {};
-  const today = payload.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const today = payload.date || Utilities.formatDate(new Date(), coverageTimeZone_(), 'yyyy-MM-dd');
   const dayCode = payload.day || guessDayCodeFromDate_(today);
 
   return {
@@ -717,6 +716,7 @@ function getSidebarBootstrap(payload) {
 
 function menuValidateTeacherScheduleSource() {
   const result = validateTeacherScheduleSource_();
+  if (classScheduleSheet_()) writeScheduleCheckSheet_(result.classScheduleFindings || []);
   const warningText = result.warnings.length
     ? '\n\nWarnings:\n- ' + result.warnings.join('\n- ')
     : '\n\nNo structural issues found.';

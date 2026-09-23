@@ -6,7 +6,7 @@ function createCoverageHandoutDocWideFromLatestPreview_() {
     throw new Error('No assigned preview rows found to build handouts.');
   }
 
-  const date = normalizeDateKey_(rows[0].Date) || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const date = normalizeDateKey_(rows[0].Date) || Utilities.formatDate(new Date(), coverageTimeZone_(), 'yyyy-MM-dd');
   const day = String(rows[0].Day || '').trim();
   return createCoverageHandoutDocWide_(rows, date, day);
 }
@@ -111,7 +111,7 @@ function formatWideHandoutDate_(date) {
   const parsed = new Date(key + 'T12:00:00');
   if (isNaN(parsed)) return key;
 
-  return Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'EEEE, MMMM d, yyyy');
+  return Utilities.formatDate(parsed, coverageTimeZone_(), 'EEEE, MMMM d, yyyy');
 }
 
 function formatWideHandoutTimeRange_(startValue, endValue) {

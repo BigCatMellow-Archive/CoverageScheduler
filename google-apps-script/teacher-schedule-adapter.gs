@@ -162,12 +162,50 @@ function validateTeacherScheduleSource_() {
   if (invalidDayCount) warnings.push(invalidDayCount + ' row(s) use a day code other than M/T/W/R/F.');
   if (invalidTimeCount) warnings.push(invalidTimeCount + ' row(s) have an invalid or reversed Start/End time.');
 
-  const termList = Object.keys(terms).sort();
-  const nonAllYearTerms = termList.filter(term => term.toLowerCase() !== 'all year');
-  if (nonAllYearTerms.length) {
+  const overlapInfo = teacherScheduleOverlaps_(readSheetObjects_('Teacher Schedule'));
+  if (overlapInfo.count) {
     warnings.push(
-      'Term values other than "All Year" are present (' + nonAllYearTerms.join(', ') +
-      '). The current scheduler treats all matching weekday rows as active; add term/date mapping before using seasonal schedules.'
+      overlapInfo.count + ' pair(s) of rows put the same person in two places at once (' +
+      overlapInfo.people + ' staff). Examples: ' + overlapInfo.examples.join('; ') +
+      '. The scheduler treats these as two separate rooms, so one coverage person can never take both; ' +
+      'if they are data-entry artifacts, fix the rows or several blocks may show Unfilled.'
+    );
+  }
+
+  const termList = Object.keys(terms).sort();
+  const recognizedTerms = { '': true, S1: true, S2: true };
+  const unrecognizedTerms = termList.filter(term => !recognizedTerms[normalizeScheduleTerm_(term)]);
+  const usesRecognizedSemesters = termList.some(term => {
+    const normalized = normalizeScheduleTerm_(term);
+    return normalized === 'S1' || normalized === 'S2';
+  });
+
+  if (unrecognizedTerms.length) {
+    warnings.push(
+      'Unrecognized Term value(s): ' + unrecognizedTerms.join(', ') +
+      '. Recognized values are blank/"All Year" and "S1"/"S2" (also accepts "Semester 1/2", "Term 1/2") — those are already date-filtered automatically. ' +
+      (usesRecognizedSemesters
+        ? 'Because this sheet also has recognized S1/S2 rows, rows using an unrecognized term will never be treated as active for coverage — fix the term value or these rows will be silently skipped every day.'
+        : 'Right now these rows are treated as active on every date, since no recognized S1/S2 rows are present elsewhere to trigger semester filtering.')
+    );
+  }
+
+  const normalizedRows = readSheetObjects_('Teacher Schedule').map(row => normalizeTeacherScheduleRow_(row));
+  const classCheck = classScheduleConsistency_(normalizedRows);
+  if (classCheck.error) warnings.push(classCheck.error);
+  if (classCheck.sheetName) {
+    const enriched = normalizedRows.filter(row => row.gradeSource === 'Class Schedule').length;
+    const counts = {};
+    classCheck.findings.forEach(f => { counts[f.type] = (counts[f.type] || 0) + 1; });
+    const fixes = classCheck.findings.filter(f => f.severity === 'Fix').length;
+    warnings.push(
+      'Class Schedule ("' + classCheck.sheetName + '"): ' + enriched +
+      ' Teacher Schedule row(s) without a Class got their grade from it. ' +
+      (classCheck.findings.length
+        ? fixes + ' issue(s) to fix, ' + (classCheck.findings.length - fixes) + ' note(s): ' +
+          Object.keys(counts).sort().map(type => counts[type] + ' ' + type.toLowerCase()).join(', ') +
+          '. Full list is on the ' + SCHEDULE_CHECK_SHEET_ + ' sheet.'
+        : 'It agrees with Teacher Schedule.')
     );
   }
 
@@ -175,7 +213,8 @@ function validateTeacherScheduleSource_() {
     rowCount: rowCount,
     teacherCount: Object.keys(teachers).length,
     terms: termList,
-    warnings: warnings
+    warnings: warnings,
+    classScheduleFindings: classCheck.findings
   };
 }
 
@@ -185,4 +224,38 @@ function findTeacherScheduleHeader_(headers, aliases) {
     if (idx !== -1) return idx;
   }
   return -1;
+}
+
+
+// Pairs of rows needing coverage that overlap in time for the same person,
+// day, and term. Rows in different semesters never overlap in practice;
+// All Year rows overlap with both semesters.
+function teacherScheduleOverlaps_(rawRows) {
+  const groups = {};
+  (rawRows || []).forEach(raw => {
+    const row = normalizeTeacherScheduleRow_(raw);
+    if (!row.staffName || !row.needsCoverageIfAbsent || row.startMinutes == null || row.endMinutes == null) return;
+    const key = row.staffName + '\u0000' + row.day;
+    (groups[key] || (groups[key] = [])).push(row);
+  });
+
+  let count = 0;
+  const people = new Set();
+  const examples = [];
+  Object.keys(groups).forEach(key => {
+    const rows = groups[key].sort((a, b) => a.startMinutes - b.startMinutes);
+    for (let i = 0; i < rows.length; i++) {
+      for (let j = i + 1; j < rows.length && rows[j].startMinutes < rows[i].endMinutes; j++) {
+        const a = rows[i], b = rows[j];
+        if (a.term && b.term && a.term !== b.term) continue;
+        count++;
+        people.add(a.staffName);
+        if (examples.length < 3) {
+          examples.push(a.staffName + ' (' + a.day + ') ' + minutesToDisplay_(a.startMinutes) + ' ' + a.className +
+            ' / ' + minutesToDisplay_(b.startMinutes) + ' ' + b.className);
+        }
+      }
+    }
+  });
+  return { count: count, people: people.size, examples: examples };
 }

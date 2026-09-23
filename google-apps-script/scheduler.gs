@@ -104,6 +104,59 @@ const HEADER_ALIASES = {
   }
 };
 
+// ── Write safety ──────────────────────────────────────────────────────────
+// Several front-office users can use the web app at once, and most saves are
+// read-modify-write over a whole sheet. Without a lock, two overlapping saves
+// can silently drop one person's change (or, for field trips, both pass the
+// duplicate check and create two events). Nested calls within one execution
+// reuse the lock already held.
+let COVERAGE_LOCK_DEPTH_ = 0;
+
+function withCoverageLock_(fn) {
+  if (COVERAGE_LOCK_DEPTH_ > 0) return fn();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    throw new Error('Another Coverage Scheduler change is still being saved. Wait a few seconds and try again.');
+  }
+  COVERAGE_LOCK_DEPTH_++;
+  try {
+    return fn();
+  } finally {
+    COVERAGE_LOCK_DEPTH_--;
+    lock.releaseLock();
+  }
+}
+
+// Replaces a sheet's data rows without an empty window: the new rows are
+// written first and only leftover old rows below them are cleared. The old
+// clear-then-write pattern would leave the sheet empty (losing every date's
+// absences or saved coverage) if the write failed partway.
+function rewriteSheetRows_(sheetName, headers, rows) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+  if (!sheet) throw new Error('Missing sheet: ' + sheetName);
+  const previousLastRow = sheet.getLastRow();
+  if (rows.length) writeObjectsToSheet_(sheetName, headers, rows, false);
+  const firstStaleRow = rows.length + 2;
+  const lastCol = sheet.getLastColumn();
+  if (previousLastRow >= firstStaleRow && lastCol > 0) {
+    sheet.getRange(firstStaleRow, 1, previousLastRow - firstStaleRow + 1, lastCol).clearContent();
+  }
+}
+
+// A generated plan is only valid for the absences and field trips it was
+// built from. When those change, drop the stored preview for affected dates so
+// reopening the app shows "no plan" instead of quietly restoring a stale one.
+function invalidatePreviewForDateRange_(startDate, endDate) {
+  const start = normalizeDateKey_(startDate);
+  const end = normalizeDateKey_(endDate || startDate);
+  if (!start || !end) return;
+  const affected = readSheetObjects_('_Preview').some(row => {
+    const key = normalizeDateKey_(row.Date);
+    return key && key >= start && key <= end;
+  });
+  if (affected) clearSheetDataKeepingHeader_('_Preview');
+}
+
 function ensureFieldTripsSheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName('Field Trips');
@@ -281,6 +334,10 @@ function fieldTripIdentityKey_(trip) {
 }
 
 function saveFieldTrip_(payload) {
+  return withCoverageLock_(() => saveFieldTripUnlocked_(payload));
+}
+
+function saveFieldTripUnlocked_(payload) {
   payload = payload || {};
   const startDate = normalizeDateKey_(payload.startDate || payload.date);
   const endDate = normalizeDateKey_(payload.endDate || payload.startDate || payload.date);
@@ -354,6 +411,12 @@ function saveFieldTrip_(payload) {
   }
   if (targetRow === -1) targetRow = sheet.getLastRow() + 1;
 
+  // An edit can move a trip to different dates; any preview built for either
+  // the old or the new dates no longer reflects this trip.
+  const previousTrip = getFieldTripsInRange_('', '').find(trip => trip.eventId === eventId);
+  if (previousTrip) invalidatePreviewForDateRange_(previousTrip.startDate, previousTrip.endDate);
+  invalidatePreviewForDateRange_(startDate, endDate);
+
   setSheetRowObject_(sheet, targetRow, headers, HEADER_ALIASES['Field Trips'], {
     Event_ID: eventId,
     Name: name,
@@ -380,6 +443,10 @@ function saveFieldTrip_(payload) {
 }
 
 function deleteFieldTrip_(eventId) {
+  return withCoverageLock_(() => deleteFieldTripUnlocked_(eventId));
+}
+
+function deleteFieldTripUnlocked_(eventId) {
   const id = String(eventId || '').trim();
   if (!id) throw new Error('No field trip ID was provided.');
 
@@ -394,7 +461,9 @@ function deleteFieldTrip_(eventId) {
   const values = sheet.getDataRange().getValues();
   for (let r = 1; r < values.length; r++) {
     if (String(values[r][eventIdCol] || '').trim() === id) {
+      const trip = getFieldTripsInRange_('', '').find(item => item.eventId === id);
       sheet.deleteRow(r + 1);
+      if (trip) invalidatePreviewForDateRange_(trip.startDate, trip.endDate);
       return { deleted: true, eventId: id };
     }
   }
@@ -483,8 +552,11 @@ function getAllCoverageStaff_(date, day) {
       allowedGrades: row.allowedGrades === '*' ? '' : row.allowedGrades,
       allowedSubjects: row.allowedSubjects === '*' ? '' : row.allowedSubjects,
       allowedAssignmentTypes: row.allowedAssignmentTypes === '*' ? '' : row.allowedAssignmentTypes,
-      maxBlocksPerDay: row.maxBlocksPerDay === Infinity ? '' : String(row.maxBlocksPerDay || ''),
-      maxTeachersPerDay: row.maxTeachersPerDay === Infinity ? '' : String(row.maxTeachersPerDay || ''),
+      // Show the person's own setting; blank means the Config default applies.
+      // Showing the effective value would write the default into their row the
+      // next time someone saved the edit form.
+      maxBlocksPerDay: row.rawMaxBlocksPerDay,
+      maxTeachersPerDay: row.rawMaxTeachersPerDay,
       canBeSplitAcrossTeachers: row.canBeSplitAcrossTeachers,
       notes: row.notes
     }))
@@ -493,6 +565,10 @@ function getAllCoverageStaff_(date, day) {
 }
 
 function toggleCoverageStaffActive(payload) {
+  return withCoverageLock_(() => toggleCoverageStaffActiveUnlocked_(payload));
+}
+
+function toggleCoverageStaffActiveUnlocked_(payload) {
   payload = payload || {};
   const name = String(payload.name || '').trim();
   if (!name) throw new Error('No staff name provided.');
@@ -543,74 +619,6 @@ function toggleCoverageStaffActive(payload) {
   return getAllCoverageStaff_();
 }
 
-function updateCoverageStaff(payload) {
-  payload = payload || {};
-  const name = String(payload.name || '').trim();
-  if (!name) throw new Error('No staff name provided.');
-
-  const sheetName = getCoverageStaffSheetName_();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
-  if (!sheet) throw new Error('Missing sheet: ' + sheetName);
-
-  const values = sheet.getDataRange().getValues();
-  const headers = values[0].map(h => String(h || '').trim());
-  const aliasMap = HEADER_ALIASES['Coverage Staff'];
-
-  const nameCol = findColumnByAliases_(headers, aliasMap.Name);
-  if (nameCol === -1) throw new Error('Cannot find Name column.');
-
-  let targetRow = -1;
-  for (let r = 1; r < values.length; r++) {
-    if (String(values[r][nameCol] || '').trim() === name) {
-      targetRow = r;
-      break;
-    }
-  }
-  if (targetRow === -1) throw new Error('Coverage staff not found: ' + name);
-
-  const fieldUpdates = {
-    tier:              ['Coverage_Tier',              String(payload.tier || '')],
-    canCoverAllDay:    ['Can_Cover_All_Day',          payload.canCoverAllDay ? 'Yes' : 'No'],
-    activeToday:       ['Active_Today',               payload.activeToday ? 'Yes' : 'No'],
-    availableDays:     ['Available_Days',             String(payload.availableDays || '')],
-    defaultStart:      ['Default_Start',              String(payload.defaultStart || '')],
-    defaultEnd:        ['Default_End',                String(payload.defaultEnd || '')],
-    allowedGrades:     ['Allowed_Grades',             String(payload.allowedGrades || '')],
-    allowedSubjects:   ['Allowed_Subjects',           String(payload.allowedSubjects || '')],
-    maxBlocksPerDay:   ['Max_Blocks_Per_Day',         String(payload.maxBlocksPerDay || '')],
-    maxTeachersPerDay: ['Max_Teachers_Per_Day',        String(payload.maxTeachersPerDay || '')],
-    notes:             ['Notes',                       String(payload.notes || '')]
-  };
-
-  Object.keys(fieldUpdates).forEach(key => {
-    if (payload[key] == null) return;
-    const canonical = fieldUpdates[key][0];
-    const value = fieldUpdates[key][1];
-    const aliases = aliasMap[canonical];
-    if (!aliases) return;
-    const col = findColumnByAliases_(headers, aliases);
-    if (col !== -1) {
-      sheet.getRange(targetRow + 1, col + 1).setValue(value);
-    }
-  });
-
-  const selectedDate = normalizeDateKey_(payload.date);
-  const selectedDay = String(payload.day || guessDayCodeFromDate_(selectedDate) || '').trim();
-  if (selectedDate && selectedDay && payload.availableOnDate != null) {
-    upsertSubstituteAvailability({
-      date: selectedDate,
-      day: selectedDay,
-      name: name,
-      available: payload.availableOnDate,
-      start: payload.selectedStart || '',
-      end: payload.selectedEnd || '',
-      notes: payload.availabilityNotes || ''
-    });
-  }
-
-  return getAllCoverageStaff_(selectedDate, selectedDay);
-}
-
 function findColumnByAliases_(headers, aliases) {
   if (!aliases) return -1;
   for (let i = 0; i < aliases.length; i++) {
@@ -631,18 +639,25 @@ function getDailyAbsencesForDate_(dateStr, dayCode) {
       absenceType: String(row.Absence_Type || 'Full Day').trim(),
       startOverride: timeToDisplay_(row.Start_Override),
       endOverride: timeToDisplay_(row.End_Override),
-      notes: String(row.Notes || '').trim(),
+      notes: stripEmergencyNoteMarker_(row.Notes),
       emergency: isEmergencyAbsence_(row),
       preferredCoverage: String(row.Preferred_Coverage || '').trim()
     }))
     .filter(row => row.staffName)
-    .sort((a, b) => a.staffName.localeCompare(b.staffName));
+    .sort((a, b) =>
+      a.staffName.localeCompare(b.staffName) ||
+      (displayTimeToMinutes_(a.startOverride) || 0) - (displayTimeToMinutes_(b.startOverride) || 0)
+    );
 }
 
 function replaceDailyAbsences(payload) {
+  return withCoverageLock_(() => replaceDailyAbsencesUnlocked_(payload));
+}
+
+function replaceDailyAbsencesUnlocked_(payload) {
   payload = payload || {};
 
-  const date = payload.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const date = payload.date || Utilities.formatDate(new Date(), coverageTimeZone_(), 'yyyy-MM-dd');
   const day = String(payload.day || guessDayCodeFromDate_(date) || '').trim();
   const incomingAbsences = (payload.absences || []).filter(row => row && row.staffName);
   const staffNames = (payload.staffNames || []).filter(Boolean);
@@ -666,7 +681,7 @@ function replaceDailyAbsences(payload) {
         Absence_Type: allDay ? 'Full Day' : 'Partial Day',
         Start_Override: allDay ? '' : String(row.startOverride || '').trim(),
         End_Override: allDay ? '' : String(row.endOverride || '').trim(),
-        Notes: emergency ? 'Emergency coverage' : String(row.notes || '').trim(),
+        Notes: composeAbsenceNotes_(emergency, row.notes),
         Preferred_Coverage: String(row.preferredCoverage || '').trim()
       };
     })
@@ -681,17 +696,12 @@ function replaceDailyAbsences(payload) {
       Preferred_Coverage: ''
     }));
 
-  clearSheetDataKeepingHeader_('Daily Absences');
-  const finalRows = kept.concat(added);
-
-  if (finalRows.length) {
-    writeObjectsToSheet_(
-      'Daily Absences',
-      SHEET_SCHEMAS['Daily Absences'].headers,
-      finalRows,
-      false
-    );
-  }
+  rewriteSheetRows_(
+    'Daily Absences',
+    SHEET_SCHEMAS['Daily Absences'].headers,
+    kept.concat(added)
+  );
+  invalidatePreviewForDateRange_(date, date);
 
   return getDailyAbsencesForDate_(date, day);
 }
@@ -855,10 +865,82 @@ function candidateBreakReservations_(candidateName, state) {
   return state.breakReservationsByCandidate[candidateName] || [];
 }
 
+// A moved break must land in some open slot inside cancelled trip-grade time,
+// not in one particular slot. A reservation remembers every slot it may use
+// (eligibleRows); when a block needs its current spot, it can move again.
+// Without this, whether a block "conflicted" with a moved break depended on
+// the order assignments were made: the manual picker and save validation
+// (which replay the plan without the row being checked) could pick a
+// different spot than generation did and reject a valid plan.
+function relocateBreakReservation_(candidateName, reservation, extraBusy, state) {
+  const duration = reservation.endMinutes - reservation.startMinutes;
+  if (duration <= 0 || !(reservation.eligibleRows || []).length) return null;
+  const shadow = Object.assign({}, state, {
+    assignmentsByCandidate: Object.assign({}, state.assignmentsByCandidate, {
+      [candidateName]: ((state.assignmentsByCandidate || {})[candidateName] || []).concat(extraBusy || [])
+    }),
+    breakReservationsByCandidate: Object.assign({}, state.breakReservationsByCandidate, {
+      [candidateName]: candidateBreakReservations_(candidateName, state).filter(item => item !== reservation)
+    })
+  });
+  for (const row of reservation.eligibleRows) {
+    const slot = findOpenBreakSlotInReleasedRow_(candidateName, row, duration, shadow);
+    if (slot) return slot;
+  }
+  return null;
+}
+
+// Finds a slot for a newly moved break. If every slot is held by another
+// moved break that could itself shift to a different cancelled slot, plans
+// that shift (applied by recordAssignment_). Without this, whether a break
+// could be moved depended on which assignment happened to be placed first.
+function findBreakSlotAllowingShuffle_(candidateName, rows, duration, state, extraBusy) {
+  for (const row of rows) {
+    const slot = findOpenBreakSlotInReleasedRow_(candidateName, row, duration, state);
+    if (slot) return { slot: slot, row: row, relocations: [] };
+  }
+  const reservations = candidateBreakReservations_(candidateName, state);
+  for (const reservation of reservations) {
+    if (!(reservation.eligibleRows || []).length) continue;
+    const without = Object.assign({}, state, {
+      breakReservationsByCandidate: Object.assign({}, state.breakReservationsByCandidate, {
+        [candidateName]: reservations.filter(item => item !== reservation)
+      })
+    });
+    for (const row of rows) {
+      const slot = findOpenBreakSlotInReleasedRow_(candidateName, row, duration, without);
+      if (!slot) continue;
+      const moved = relocateBreakReservation_(candidateName, reservation, (extraBusy || []).concat([slot]), state);
+      if (moved) {
+        return {
+          slot: slot,
+          row: row,
+          relocations: [{ reservation: reservation, startMinutes: moved.startMinutes, endMinutes: moved.endMinutes }]
+        };
+      }
+    }
+  }
+  return null;
+}
+
 function candidateHasReservedBreakConflict_(candidateName, block, state) {
-  return candidateBreakReservations_(candidateName, state).some(reservation =>
-    timesOverlap_(reservation.startMinutes, reservation.endMinutes, block.startMinutes, block.endMinutes)
-  );
+  const reservations = candidateBreakReservations_(candidateName, state);
+  if (!reservations.some(item => timesOverlap_(item.startMinutes, item.endMinutes, block.startMinutes, block.endMinutes))) {
+    return false;
+  }
+  // Try moving each blocking reservation elsewhere, on a copy.
+  const simulated = reservations.map(item => Object.assign({}, item));
+  const simState = Object.assign({}, state, {
+    breakReservationsByCandidate: Object.assign({}, state.breakReservationsByCandidate, { [candidateName]: simulated })
+  });
+  for (const item of simulated) {
+    if (!timesOverlap_(item.startMinutes, item.endMinutes, block.startMinutes, block.endMinutes)) continue;
+    const slot = relocateBreakReservation_(candidateName, item, [block], simState);
+    if (!slot) return true;
+    item.startMinutes = slot.startMinutes;
+    item.endMinutes = slot.endMinutes;
+  }
+  return false;
 }
 
 function intervalConflictsWithCandidateState_(candidateName, startMinutes, endMinutes, state) {
@@ -1081,20 +1163,9 @@ function fieldTripCoverageComposition_(candidate, block, event, availabilityRows
       return b.endMinutes - a.endMinutes;
     });
 
-  let replacement = null;
-  let replacementRow = null;
-  for (const row of replacementRows) {
-    const slot = findOpenBreakSlotInReleasedRow_(
-      candidate.name,
-      row,
-      displacedBreakMinutes,
-      state
-    );
-    if (!slot) continue;
-    replacement = slot;
-    replacementRow = row;
-    break;
-  }
+  const found = findBreakSlotAllowingShuffle_(candidate.name, replacementRows, displacedBreakMinutes, state, [block]);
+  const replacement = found ? found.slot : null;
+  const replacementRow = found ? found.row : null;
 
   if (!replacement || !replacementRow) {
     return { available: false, priority: 0, reason: '', breakMove: null };
@@ -1131,6 +1202,10 @@ function fieldTripCoverageComposition_(candidate, block, event, availabilityRows
       replacementEndMinutes: replacement.endMinutes,
       replacementGrade: normalizeGradeKey_(replacementRow.grade),
       replacementClass: replacementRow.className || replacementRow.subject || 'trip-grade class',
+      // Every cancelled trip-grade slot (inside the trip window) this break
+      // could live in, so it can move again if a later block needs this spot.
+      eligibleRows: replacementRows.map(row => ({ startMinutes: row.startMinutes, endMinutes: row.endMinutes })),
+      relocations: found.relocations,
       reason: reason
     }
   };
@@ -1157,10 +1232,10 @@ function findFieldTripBreakMove_(candidate, block, event, availabilityRows, stat
     )
     .sort((a, b) => a.startMinutes - b.startMinutes);
 
-  for (const released of releasedRows) {
-    const slot = findOpenBreakSlotInReleasedRow_(candidate.name, released, breakDuration, state);
-    if (!slot) continue;
-
+  const found = findBreakSlotAllowingShuffle_(candidate.name, releasedRows, breakDuration, state, [block]);
+  if (found) {
+    const released = found.row;
+    const slot = found.slot;
     return {
       eventId: event.eventId,
       originalBreakStartMinutes: currentBreak.startMinutes,
@@ -1169,6 +1244,9 @@ function findFieldTripBreakMove_(candidate, block, event, availabilityRows, stat
       replacementEndMinutes: slot.endMinutes,
       replacementGrade: normalizeGradeKey_(released.grade),
       replacementClass: released.className || released.subject || 'trip-grade class',
+      // Every cancelled trip-grade slot this break could live in.
+      eligibleRows: releasedRows.map(row => ({ startMinutes: row.startMinutes, endMinutes: row.endMinutes })),
+      relocations: found.relocations,
       reason:
         'Break moved from ' +
         minutesToDisplay_(currentBreak.startMinutes) + '–' + minutesToDisplay_(currentBreak.endMinutes) +
@@ -1366,6 +1444,71 @@ function manualCoverageStateFromPlan_(planRows, excludedIndex, candidates, teach
   return state;
 }
 
+function coverageNeedKey_(staffName, startMinutes, endMinutes, className) {
+  return [
+    String(staffName || '').trim(),
+    startMinutes,
+    endMinutes,
+    String(className == null ? '' : className).trim()
+  ].join('\u0000');
+}
+
+// Everything the manual picker and save-time validation need from the live
+// workbook, read once. needByKey maps each current coverage need to its
+// block so a plan row can recover facts the row itself doesn't store
+// (notably whether the absence is an emergency).
+function buildCoverageLiveContext_(date, day) {
+  const config = getConfigMap_();
+  const teacherSchedule = filterTeacherScheduleForDate_(
+    readSheetObjects_('Teacher Schedule'),
+    date,
+    config
+  );
+  const absences = getDailyAbsencesForDate_(date, day);
+  const fieldTrips = getFieldTripsForDate_(date);
+  const effectiveAbsences = absences.concat(buildFieldTripParticipantAbsences_(fieldTrips));
+  const candidates = buildManualCoverageCandidates_(date, day, config, fieldTrips, teacherSchedule);
+  const needsByTeacher = buildCoverageNeedsByTeacher_(effectiveAbsences, teacherSchedule, day, fieldTrips);
+
+  const needByKey = {};
+  const needCounts = {};
+  Object.keys(needsByTeacher).forEach(name => {
+    (needsByTeacher[name] || []).forEach(need => {
+      const key = coverageNeedKey_(name, need.startMinutes, need.endMinutes, need.className);
+      needByKey[key] = need;
+      needCounts[key] = (needCounts[key] || 0) + 1;
+    });
+  });
+
+  return {
+    date: date,
+    day: day,
+    config: config,
+    teacherSchedule: teacherSchedule,
+    absences: absences,
+    fieldTrips: fieldTrips,
+    effectiveAbsences: effectiveAbsences,
+    candidates: candidates,
+    needsByTeacher: needsByTeacher,
+    needByKey: needByKey,
+    needCounts: needCounts
+  };
+}
+
+// Plan rows don't record emergency status, so the manual picker and save
+// validation look it up from the live need. Without this, an emergency block
+// was judged by non-emergency rules: the picker offered nobody the scheduler
+// itself had been allowed to use, and flagged the scheduler's own choice as
+// "currently unavailable".
+function planRowToLiveBlock_(row, liveContext) {
+  const block = planRowToCoverageBlock_(row);
+  const need = liveContext.needByKey[
+    coverageNeedKey_(block.staffName, block.startMinutes, block.endMinutes, block.className)
+  ];
+  if (need) block.emergencyOverride = !!need.emergencyOverride;
+  return block;
+}
+
 function manualCoverageContext_(payload) {
   payload = payload || {};
   const date = normalizeDateKey_(payload.date);
@@ -1378,50 +1521,103 @@ function manualCoverageContext_(payload) {
     throw new Error('The coverage block could not be identified.');
   }
 
+  const live = buildCoverageLiveContext_(date, day);
   const row = planRows[blockIndex] || {};
-  const block = planRowToCoverageBlock_(row);
+  const block = planRowToLiveBlock_(row, live);
   if (block.startMinutes == null || block.endMinutes == null) {
     throw new Error('The selected coverage block has an invalid start or end time.');
   }
 
-  const config = getConfigMap_();
-  const teacherSchedule = filterTeacherScheduleForDate_(
-    readSheetObjects_('Teacher Schedule'),
-    date,
-    config
-  );
-  const absences = getDailyAbsencesForDate_(date, day);
-  const fieldTrips = getFieldTripsForDate_(date);
-  const effectiveAbsences = absences.concat(buildFieldTripParticipantAbsences_(fieldTrips));
-  const candidates = buildManualCoverageCandidates_(
-    date,
-    day,
-    config,
-    fieldTrips,
-    teacherSchedule
-  );
   const state = manualCoverageStateFromPlan_(
     planRows,
     blockIndex,
-    candidates,
-    teacherSchedule,
+    live.candidates,
+    live.teacherSchedule,
     day,
-    effectiveAbsences
+    live.effectiveAbsences
   );
 
-  return {
-    date: date,
-    day: day,
+  return Object.assign({}, live, {
     row: row,
     block: block,
-    config: config,
-    teacherSchedule: teacherSchedule,
-    absences: absences,
-    fieldTrips: fieldTrips,
-    effectiveAbsences: effectiveAbsences,
-    candidates: candidates,
     state: state
+  });
+}
+
+// Server-side check run on every save. The plan in the browser can outlive
+// the data it was built from (absences or trips edited afterwards, a
+// coverage person switched off, a stale preview restored on reload), and the
+// save path used to trust whatever rows it was sent.
+function validateCoveragePlanForSave_(date, day, rows) {
+  const live = buildCoverageLiveContext_(date, day);
+  const planCounts = {};
+  const planLabels = {};
+  rows.forEach(row => {
+    const block = planRowToCoverageBlock_(row);
+    const key = coverageNeedKey_(block.staffName, block.startMinutes, block.endMinutes, block.className);
+    planCounts[key] = (planCounts[key] || 0) + 1;
+    planLabels[key] = block.staffName + ' ' + String(row.Start || '') + '–' + String(row.End || '');
+  });
+
+  const describeNeed = key => {
+    const need = live.needByKey[key];
+    return need
+      ? need.staffName + ' ' + minutesToDisplay_(need.startMinutes) + '–' + minutesToDisplay_(need.endMinutes)
+      : planLabels[key];
   };
+  const missing = Object.keys(live.needCounts).filter(key => (planCounts[key] || 0) < live.needCounts[key]);
+  const extra = Object.keys(planCounts).filter(key => planCounts[key] > (live.needCounts[key] || 0));
+  if (missing.length || extra.length) {
+    const parts = [];
+    if (missing.length) parts.push('not in this plan: ' + missing.slice(0, 4).map(describeNeed).join('; '));
+    if (extra.length) parts.push('no longer needed: ' + extra.slice(0, 4).map(describeNeed).join('; '));
+    throw new Error(
+      'This plan is out of date — absences, field trips, or the schedule changed after it was generated (' +
+      parts.join(' | ') + '). Click Re-generate, review, then save again.'
+    );
+  }
+
+  const candidateByName = {};
+  live.candidates.forEach(candidate => { candidateByName[candidate.name] = candidate; });
+  const configuredCoverageNames = new Set(
+    getCoverageStaffForDate_(date, day, live.config).map(candidate => candidate.name)
+  );
+
+  const problems = [];
+  rows.forEach((row, index) => {
+    const name = String(row.Assigned_Coverage || '').trim();
+    if (String(row.Status || '').trim() !== 'Assigned' || !name) return;
+
+    const block = planRowToLiveBlock_(row, live);
+    const absentName = String(row.Absent_Staff || '').trim();
+    const label = name + ' at ' + String(row.Start || '') + ' (' + absentName + ')';
+    const candidate = candidateByName[name];
+    if (!candidate) {
+      problems.push(label + (configuredCoverageNames.has(name)
+        ? ': marked unavailable for this date'
+        : ': not in Coverage Staff or the Teacher Schedule'));
+      return;
+    }
+    if (name === absentName) {
+      problems.push(label + ': cannot cover their own absence');
+      return;
+    }
+
+    const state = manualCoverageStateFromPlan_(rows, index, live.candidates, live.teacherSchedule, day, live.effectiveAbsences);
+    if (candidateIsAbsentForBlock_(name, block, state)) {
+      problems.push(label + ': absent or on a field trip at that time');
+    } else if (!candidateCanCoverBlock_(candidate, absentName, block, live.teacherSchedule, day, state, live.config)) {
+      problems.push(label + ': no longer available (availability, schedule, limits, or another assignment)');
+    }
+  });
+
+  if (problems.length) {
+    throw new Error(
+      'This plan can\'t be saved because ' + problems.length + ' assignment' + (problems.length === 1 ? ' is' : 's are') +
+      ' no longer valid: ' + problems.slice(0, 5).join('; ') + (problems.length > 5 ? '; and ' + (problems.length - 5) + ' more' : '') +
+      '. Reassign those blocks or click Re-generate, then save again.'
+    );
+  }
 }
 
 function getManualCoverageChoices_(payload) {
@@ -1665,7 +1861,7 @@ function fillDeferredFieldTripNeeds_(
 
 function generateCoveragePreview(payload) {
   payload = payload || {};
-  const date = payload.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const date = payload.date || Utilities.formatDate(new Date(), coverageTimeZone_(), 'yyyy-MM-dd');
   const day = payload.day || guessDayCodeFromDate_(date);
 
   const config = getConfigMap_();
@@ -1709,13 +1905,27 @@ function generateCoveragePreview(payload) {
   };
 
   // ── Manual/preferred ordinary assignments first ──
-  const manualNames = new Set();
-  absences.filter(a => a.preferredCoverage).forEach(absence => {
-    const absentName = absence.staffName;
-    const preferred = absence.preferredCoverage;
-    const blocks = (needsByTeacher[absentName] || []).filter(block => !block.fieldTripEventId);
-    if (!blocks.length) return;
+  // Each need carries the preferred person from the absence window it came
+  // from, so two windows for the same person can prefer different people and
+  // a preference never spills onto another window's blocks.
+  const preferredAssigned = new Set();
+  const preferredGroups = {};
+  Object.keys(needsByTeacher).forEach(absentName => {
+    (needsByTeacher[absentName] || []).forEach(block => {
+      if (block.fieldTripEventId || !block.preferredCoverage) return;
+      const key = absentName + '\u0000' + block.preferredCoverage;
+      if (!preferredGroups[key]) {
+        preferredGroups[key] = { absentName: absentName, preferred: block.preferredCoverage, blocks: [] };
+      }
+      preferredGroups[key].blocks.push(block);
+    });
+  });
 
+  Object.keys(preferredGroups).sort().forEach(key => {
+    const group = preferredGroups[key];
+    const absentName = group.absentName;
+    const preferred = group.preferred;
+    const blocks = group.blocks.slice().sort((a, b) => a.startMinutes - b.startMinutes);
     const candidate = coverageStaff.find(c => c.name === preferred);
 
     // A preferred/manual person is a preference, not permission to bypass
@@ -1741,11 +1951,11 @@ function generateCoveragePreview(payload) {
     blocks.forEach(block => {
       planRows.push(makePlanRow_(date, day, block, candidateInfo, 'Manual', 'Assigned', 'Manually preferred: ' + preferred + '.'));
       recordAssignment_(state, candidate, block, absentName);
+      preferredAssigned.add(block);
     });
 
     summary.totalBlocks += blocks.length;
     summary.assignedBlocks += blocks.length;
-    manualNames.add(absentName);
   });
 
   // ── Field trip first pass: event-created staff pool, global chronological order ──
@@ -1767,10 +1977,11 @@ function generateCoveragePreview(payload) {
 
   // ── Ordinary automatic coverage ──
   const orderedNeeds = Object.keys(needsByTeacher)
-    .filter(name => !manualNames.has(name))
     .map(absentName => ({
       absentName: absentName,
-      blocks: (needsByTeacher[absentName] || []).filter(block => !block.fieldTripEventId)
+      blocks: (needsByTeacher[absentName] || []).filter(block =>
+        !block.fieldTripEventId && !preferredAssigned.has(block)
+      )
     }))
     .filter(item => item.blocks.length)
     .map(item => ({
@@ -1955,21 +2166,30 @@ function generateCoveragePreview(payload) {
 }
 
 function saveCoveragePlan(payload) {
+  return withCoverageLock_(() => saveCoveragePlanUnlocked_(payload));
+}
+
+function saveCoveragePlanUnlocked_(payload) {
   payload = payload || {};
   const rows = payload.rows || getLatestPreview_().rows || [];
   if (!rows.length) {
     throw new Error('No preview rows available to save.');
   }
 
-  const date = rows[0].Date || payload.date;
-  const day = rows[0].Day || payload.day;
-  const existing = readSheetObjects_('Coverage Output').filter(row => !(normalizeDateKey_(row.Date) === date && String(row.Day || '').trim() === String(day).trim()));
-  clearSheetDataKeepingHeader_('Coverage Output');
-
-  const finalRows = existing.concat(rows);
-  if (finalRows.length) {
-    writeObjectsToSheet_('Coverage Output', SHEET_SCHEMAS['Coverage Output'].headers, finalRows, false);
+  // Rows restored from _Preview can carry a spreadsheet Date object here;
+  // comparing that to normalized keys never matched, so the old rows for this
+  // date were kept and the save appended a duplicate set.
+  const date = normalizeDateKey_(rows[0].Date || payload.date);
+  const day = String(rows[0].Day || payload.day || guessDayCodeFromDate_(date) || '').trim();
+  if (!date || !day) throw new Error('The plan does not have a valid date.');
+  if (rows.some(row => normalizeDateKey_(row.Date) !== date)) {
+    throw new Error('A coverage plan can only be saved for one date at a time.');
   }
+
+  validateCoveragePlanForSave_(date, day, rows);
+
+  const existing = readSheetObjects_('Coverage Output').filter(row => !(normalizeDateKey_(row.Date) === date && String(row.Day || '').trim() === day));
+  rewriteSheetRows_('Coverage Output', SHEET_SCHEMAS['Coverage Output'].headers, existing.concat(rows));
 
   return {
     date: date,
@@ -1993,99 +2213,170 @@ function getLatestPreview_(date, day) {
 }
 
 function writePreview_(rows) {
-  clearSheetDataKeepingHeader_('_Preview');
-  if (rows.length) {
-    writeObjectsToSheet_('_Preview', SHEET_SCHEMAS['_Preview'].headers, rows, false);
-  }
+  withCoverageLock_(() => {
+    rewriteSheetRows_('_Preview', SHEET_SCHEMAS['_Preview'].headers, rows);
+  });
 }
 
+// The part of the day an absence removes someone, in minutes. Full-day and
+// malformed partial absences cover the whole day (fail closed: a bad time
+// entry means cover everything rather than silently cover nothing).
+function absenceWindowMinutes_(absence) {
+  const type = String(absence.absenceType || 'Full Day').trim();
+  if (type === 'Full Day') return { startMinutes: 0, endMinutes: 1440 };
+  const startMinutes = displayTimeToMinutes_(absence.startOverride);
+  const endMinutes = displayTimeToMinutes_(absence.endOverride);
+  if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) {
+    return { startMinutes: 0, endMinutes: 1440 };
+  }
+  return { startMinutes: startMinutes, endMinutes: endMinutes };
+}
+
+// Builds each absent person's coverage needs from the union of all of their
+// absence windows (ordinary absences and field-trip participation), so
+// overlapping or adjacent windows never produce overlapping needs for the same
+// class. Each scheduled block is cut into non-overlapping segments, and
+// adjacent segments are merged whenever they share the same field trip,
+// emergency status, and preferred coverage person.
 function buildCoverageNeedsByTeacher_(absences, teacherSchedule, day, fieldTrips) {
   const needs = {};
-  const normalizedSchedule = teacherSchedule.map(row => normalizeTeacherScheduleRow_(row));
   const tripsById = {};
   (fieldTrips || []).forEach(trip => {
     if (trip && trip.eventId) tripsById[String(trip.eventId)] = trip;
   });
 
-  function addNeed(name, row) {
-    if (!needs[name]) needs[name] = [];
-    const key = [row.startMinutes, row.endMinutes, row.className, row.assignmentType].join('|');
-    const existing = needs[name].find(item =>
-      [item.startMinutes, item.endMinutes, item.className, item.assignmentType].join('|') === key
-    );
-    if (existing) {
-      if (row.fieldTripEventId && !existing.fieldTripEventId) {
-        existing.fieldTripEventId = row.fieldTripEventId;
-        existing.fieldTripName = row.fieldTripName;
-        existing.fieldTripGrades = (row.fieldTripGrades || []).slice();
-      }
-      return;
-    }
-    needs[name].push(row);
-  }
-
+  const windowsByStaff = {};
   (absences || []).forEach(absence => {
-    const name = absence.staffName;
+    const name = String(absence.staffName || '').trim();
     if (!name) return;
-
     const trip = absence.fieldTripEventId
       ? tripsById[String(absence.fieldTripEventId)] || null
       : null;
-
-    const relevantRows = normalizedSchedule.filter(row => {
-      if (row.staffName !== name || row.day !== day || !row.needsCoverageIfAbsent) return false;
-
-      // Any class whose students are away on a field trip is cancelled and
-      // never becomes a coverage need, whether the teacher is on the trip or
-      // absent for another reason.
-      if (blockIsCancelledByFieldTrip_(row, fieldTrips)) return false;
-
-      return true;
+    (windowsByStaff[name] || (windowsByStaff[name] = [])).push({
+      window: absenceWindowMinutes_(absence),
+      trip: trip,
+      emergency: !!absence.emergency,
+      // Preferred coverage is a per-absence preference for ordinary blocks.
+      preferred: trip ? '' : String(absence.preferredCoverage || '').trim()
     });
+  });
 
-    filterRowsByAbsenceType_(relevantRows, absence).forEach(row => {
-      row.emergencyOverride = !!absence.emergency;
+  Object.keys(windowsByStaff).forEach(name => {
+    const windows = windowsByStaff[name];
+    const rows = normalizedScheduleRowsFor_(teacherSchedule, name, day)
+      .filter(row =>
+        row.needsCoverageIfAbsent &&
+        row.startMinutes != null &&
+        row.endMinutes != null &&
+        row.endMinutes > row.startMinutes &&
+        // Any class whose students are away on a field trip is cancelled and
+        // never becomes a coverage need, whether the teacher is on the trip or
+        // absent for another reason.
+        !blockIsCancelledByFieldTrip_(row, fieldTrips)
+      )
+      .slice()
+      .sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes);
 
-      if (trip) {
-        row.fieldTripEventId = trip.eventId;
-        row.fieldTripName = trip.name;
-        row.fieldTripGrades = (trip.grades || []).slice();
+    rows.forEach(row => {
+      const pieces = windows
+        .map(item => ({
+          startMinutes: Math.max(row.startMinutes, item.window.startMinutes),
+          endMinutes: Math.min(row.endMinutes, item.window.endMinutes),
+          trip: item.trip,
+          emergency: item.emergency,
+          preferred: item.preferred
+        }))
+        .filter(piece => piece.endMinutes > piece.startMinutes);
+      if (!pieces.length) return;
+
+      const points = Array.from(new Set(
+        pieces.reduce((all, piece) => all.concat([piece.startMinutes, piece.endMinutes]), [])
+      )).sort((a, b) => a - b);
+
+      const segments = [];
+      for (let i = 0; i < points.length - 1; i++) {
+        const segStart = points[i];
+        const segEnd = points[i + 1];
+        const covering = pieces.filter(piece => piece.startMinutes <= segStart && piece.endMinutes >= segEnd);
+        if (!covering.length) continue;
+
+        const tripPiece = covering.find(piece => piece.trip);
+        const preferredNames = Array.from(new Set(
+          covering.map(piece => piece.preferred).filter(Boolean)
+        ));
+        const label = {
+          trip: tripPiece ? tripPiece.trip : null,
+          emergency: covering.some(piece => piece.emergency),
+          // Two windows asking for different people over the same minutes is
+          // ambiguous, so neither preference applies to that stretch.
+          preferred: tripPiece || preferredNames.length !== 1 ? '' : preferredNames[0]
+        };
+
+        const last = segments[segments.length - 1];
+        if (
+          last &&
+          last.endMinutes === segStart &&
+          last.trip === label.trip &&
+          last.emergency === label.emergency &&
+          last.preferred === label.preferred
+        ) {
+          last.endMinutes = segEnd;
+        } else {
+          segments.push(Object.assign({ startMinutes: segStart, endMinutes: segEnd }, label));
+        }
       }
 
-      addNeed(name, row);
+      segments.forEach(segment => {
+        const need = Object.assign({}, row, {
+          startMinutes: segment.startMinutes,
+          endMinutes: segment.endMinutes,
+          emergencyOverride: segment.emergency,
+          preferredCoverage: segment.preferred
+        });
+        if (segment.startMinutes !== row.startMinutes || segment.endMinutes !== row.endMinutes) {
+          need.originalStartMinutes = row.startMinutes;
+          need.originalEndMinutes = row.endMinutes;
+        }
+        if (segment.trip) {
+          need.fieldTripEventId = segment.trip.eventId;
+          need.fieldTripName = segment.trip.name;
+          need.fieldTripGrades = (segment.trip.grades || []).slice();
+        }
+        (needs[name] || (needs[name] = [])).push(need);
+      });
     });
   });
 
   return needs;
 }
 
+// Daily Absences has no dedicated emergency column, so emergency status is
+// stored as a marker at the start of Notes. It used to be detected by the word
+// "emergency" appearing anywhere, which meant an ordinary absence noted as
+// "family emergency" silently switched on emergency rules (restriction
+// bypass and 7th/8th-grade pulls), and saving any absence replaced an
+// emergency absence's notes with the marker text. The marker is now
+// deliberate and the user's notes are kept after it. Rows written by earlier
+// versions contain exactly "Emergency coverage" and are still recognized.
+const EMERGENCY_NOTE_MARKER_ = '[Emergency]';
+const LEGACY_EMERGENCY_NOTE_ = 'emergency coverage';
+
 function isEmergencyAbsence_(absence) {
-  return String(absence.Notes || absence.notes || '').toLowerCase().indexOf('emergency') !== -1;
+  const notes = String(absence.Notes || absence.notes || '').trim().toLowerCase();
+  return notes.indexOf(EMERGENCY_NOTE_MARKER_.toLowerCase()) === 0 || notes === LEGACY_EMERGENCY_NOTE_;
 }
 
-function filterRowsByAbsenceType_(rows, absence) {
-  const type = String(absence.absenceType || 'Full Day').trim();
-  if (type === 'Full Day') {
-    return (rows || []).map(row => Object.assign({}, row));
-  }
+function stripEmergencyNoteMarker_(notes) {
+  const text = String(notes || '').trim();
+  if (text.toLowerCase() === LEGACY_EMERGENCY_NOTE_) return '';
+  if (text.toLowerCase().indexOf(EMERGENCY_NOTE_MARKER_.toLowerCase()) !== 0) return text;
+  return text.slice(EMERGENCY_NOTE_MARKER_.length).trim();
+}
 
-  const startMinutes = displayTimeToMinutes_(absence.startOverride);
-  const endMinutes = displayTimeToMinutes_(absence.endOverride);
-  if (startMinutes == null || endMinutes == null) {
-    return (rows || []).map(row => Object.assign({}, row));
-  }
-
-  return (rows || [])
-    .filter(row => row.startMinutes < endMinutes && row.endMinutes > startMinutes)
-    .map(row => {
-      const clipped = Object.assign({}, row);
-      clipped.originalStartMinutes = row.startMinutes;
-      clipped.originalEndMinutes = row.endMinutes;
-      clipped.startMinutes = Math.max(row.startMinutes, startMinutes);
-      clipped.endMinutes = Math.min(row.endMinutes, endMinutes);
-      return clipped;
-    })
-    .filter(row => row.endMinutes > row.startMinutes);
+function composeAbsenceNotes_(emergency, notes) {
+  const clean = stripEmergencyNoteMarker_(notes);
+  if (!emergency) return clean;
+  return clean ? EMERGENCY_NOTE_MARKER_ + ' ' + clean : EMERGENCY_NOTE_MARKER_;
 }
 
 function estimateDifficulty_(absentName, blocks, coverageStaff, teacherSchedule, day, config) {
@@ -2174,6 +2465,15 @@ function pickPrimarySplitCandidate_(absentName, blocks, coverageStaff, teacherSc
         fieldTripEvents: candidate.fieldTripEvents || [],
         fieldTripOnly: !!candidate.fieldTripOnly,
         fieldTripReason: fieldTripReason,
+        // Mirrors pickBestBlockCandidate_: without this, a break-time move
+        // implied by bestFieldTrip would be scored and reported in the
+        // reason text but never reserved in
+        // state.breakReservationsByCandidate, letting a later assignment
+        // double-book the same replacement break slot. Note this batch can
+        // cover several blocks at once; if more than one of them implies a
+        // distinct break move, only the highest-priority one (bestFieldTrip)
+        // is reserved here.
+        fieldTripBreakMove: bestFieldTrip ? bestFieldTrip.fieldTripBreakMove || null : null,
         emergencyPull: usesEmergencyPull,
         coverableCount: coverableBlocks.length,
         score: score,
@@ -2253,9 +2553,20 @@ function pickBestBlockCandidate_(absentName, block, coverageStaff, teacherSchedu
   return candidates[0] || null;
 }
 
+function blocksOverlapEachOther_(blocks) {
+  const sorted = (blocks || []).slice().sort((a, b) => a.startMinutes - b.startMinutes);
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].startMinutes < sorted[i - 1].endMinutes) return true;
+  }
+  return false;
+}
+
 function candidateCanCoverAllBlocks_(candidate, absentName, blocks, teacherSchedule, day, state, config) {
   if (!candidate || !candidate.name) return false;
   if (!candidate.activeToday) return false;
+  // Each block is otherwise checked only against assignments already made,
+  // so one person could be handed two of these blocks at the same time.
+  if (blocksOverlapEachOther_(blocks)) return false;
   if (!candidateCanTakeTeacher_(candidate, absentName, blocks.length, state, config)) return false;
   return blocks.every(block => candidateCanCoverBlock_(candidate, absentName, block, teacherSchedule, day, state, config));
 }
@@ -2292,14 +2603,61 @@ function candidateHasAvailabilityForBlock_(candidate, block, teacherSchedule, da
   return candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day, state).available;
 }
 
+// Normalized Teacher Schedule rows, indexed by staff name + day code and
+// cached per schedule array. Every server call builds a fresh schedule array,
+// so the cache can never serve rows from an earlier request. Consumers treat
+// these rows as read-only (they copy before changing anything).
+//
+// Before this index, candidateAvailabilityForBlock_ re-normalized the entire
+// schedule on every call, and it is called for every candidate x block pair
+// (several times over). On a 60-teacher schedule that was ~4.4 million row
+// normalizations per Generate Plan.
+const SCHEDULE_INDEX_CACHE_ = new WeakMap();
+
+function normalizedScheduleRowsFor_(teacherSchedule, staffName, day) {
+  const source = teacherSchedule || [];
+  let index = SCHEDULE_INDEX_CACHE_.get(source);
+  if (!index) {
+    index = {};
+    source.forEach(raw => {
+      const row = normalizeTeacherScheduleRow_(raw);
+      if (!row.staffName) return;
+      const key = row.staffName + '\u0000' + row.day;
+      (index[key] || (index[key] = [])).push(row);
+    });
+    SCHEDULE_INDEX_CACHE_.set(source, index);
+  }
+  return index[String(staffName || '') + '\u0000' + String(day || '')] || [];
+}
+
+// A scheduled obligation (a class, homeroom, or duty the person must still
+// attend) that overlaps the block. Time inside a field trip that cancels this
+// person's own trip-grade class is not an obligation. Used so that "can cover
+// any block" never overrides where the Teacher Schedule says someone is.
+function candidateOwnScheduleConflict_(candidate, block, availabilityRows) {
+  return (availabilityRows || []).find(row => {
+    if (!row.needsCoverageIfAbsent || row.coverEligibleThisBlock) return false;
+    if (row.startMinutes == null || row.endMinutes == null) return false;
+    const overlapStart = Math.max(row.startMinutes, block.startMinutes);
+    const overlapEnd = Math.min(row.endMinutes, block.endMinutes);
+    if (overlapEnd <= overlapStart) return false;
+
+    const releasedByTrip = isInstructionalGradeBlock_(row) &&
+      (candidate.fieldTripEvents || []).some(event =>
+        (event.grades || []).some(grade => normalizeGradeKey_(grade) === normalizeGradeKey_(row.grade)) &&
+        event.startMinutes <= overlapStart &&
+        event.endMinutes >= overlapEnd
+      );
+    return !releasedByTrip;
+  }) || null;
+}
+
 function candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day, state) {
   if (!candidateAvailabilityWindowAllowsBlock_(candidate, block)) {
     return { available: false, emergencyPull: false, fieldTripPriority: 0, fieldTripReason: '', fieldTripBreakMove: null, fieldTripRunwayMinutes: 0 };
   }
 
-  const availabilityRows = teacherSchedule
-    .map(row => normalizeTeacherScheduleRow_(row))
-    .filter(row => row.staffName === candidate.name && row.day === day);
+  const availabilityRows = normalizedScheduleRowsFor_(teacherSchedule, candidate.name, day);
 
   const fieldTripAvailability = candidateFieldTripAvailability_(candidate, block, availabilityRows, state);
   if (fieldTripAvailability.available) {
@@ -2324,11 +2682,16 @@ function candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day, 
     };
   }
 
-  if (candidate.canCoverAllDay) {
+  // Teacher Schedule is authoritative for where people are. "Can cover any
+  // block" describes a person's hours, not permission to leave their own class
+  // or duty. Emergency pulls (below) deliberately bypass this.
+  const ownConflict = candidateOwnScheduleConflict_(candidate, block, availabilityRows);
+
+  if (!ownConflict && candidate.canCoverAllDay) {
     return { available: true, emergencyPull: false, fieldTripPriority: 0, fieldTripReason: '', fieldTripBreakMove: null, fieldTripRunwayMinutes: 0 };
   }
 
-  if (availabilityRows.some(row =>
+  if (!ownConflict && availabilityRows.some(row =>
     row.coverEligibleThisBlock &&
     row.startMinutes <= block.startMinutes &&
     row.endMinutes >= block.endMinutes &&
@@ -2463,6 +2826,14 @@ function isSeventhOrEighthGradeBlock_(row) {
 }
 
 function recordAssignment_(state, candidate, block, absentName) {
+  // Shifts of existing moved breaks planned by the slot search for this block.
+  const move = candidate.fieldTripBreakMove;
+  (move && move.relocations || []).forEach(item => {
+    if (candidateBreakReservations_(candidate.name, state).indexOf(item.reservation) === -1) return;
+    item.reservation.startMinutes = item.startMinutes;
+    item.reservation.endMinutes = item.endMinutes;
+  });
+
   if (!state.assignmentsByCandidate[candidate.name]) state.assignmentsByCandidate[candidate.name] = [];
   state.assignmentsByCandidate[candidate.name].push({
     absentName: absentName,
@@ -2488,10 +2859,22 @@ function recordAssignment_(state, candidate, block, absentName) {
         endMinutes: move.replacementEndMinutes,
         originalBreakStartMinutes: move.originalBreakStartMinutes,
         originalBreakEndMinutes: move.originalBreakEndMinutes,
+        eligibleRows: move.eligibleRows || [],
         reason: move.reason
       });
     }
   }
+
+  // If this block sits on a moved break, shift that break to another open
+  // cancelled slot (the conflict check already confirmed one exists).
+  candidateBreakReservations_(candidate.name, state).forEach(reservation => {
+    if (!timesOverlap_(reservation.startMinutes, reservation.endMinutes, block.startMinutes, block.endMinutes)) return;
+    const slot = relocateBreakReservation_(candidate.name, reservation, [block], state);
+    if (slot) {
+      reservation.startMinutes = slot.startMinutes;
+      reservation.endMinutes = slot.endMinutes;
+    }
+  });
 
   state.blocksByCandidate[candidate.name] = (state.blocksByCandidate[candidate.name] || 0) + 1;
   if (!state.teachersByCandidate[candidate.name]) state.teachersByCandidate[candidate.name] = {};
@@ -2649,7 +3032,7 @@ function normalizeTeacherScheduleRow_(row) {
   const explicitNeeds = String(row.Needs_Coverage_If_Absent || '').trim();
   const explicitCover = String(row.Cover_Eligible_This_Block || '').trim();
 
-  return {
+  const normalized = {
     staffName: String(row.Staff_Name || '').trim(),
     role: String(row.Role || '').trim(),
     term: normalizeScheduleTerm_(row.Term),
@@ -2657,7 +3040,9 @@ function normalizeTeacherScheduleRow_(row) {
     startMinutes: timeToMinutes_(row.Start),
     endMinutes: timeToMinutes_(row.End),
     className: className,
-    grade: String(row.Grade || '').trim() || inferGradeFromClass_(rawClassName || className),
+    // Only the Class column (or an explicit Grade) identifies students; the
+    // Subject text never does.
+    grade: String(row.Grade || '').trim() || inferGradeFromClass_(rawClassName),
     subject: subject,
     assignmentType: assignmentType,
     room: String(row.Room || '').trim(),
@@ -2668,6 +3053,24 @@ function normalizeTeacherScheduleRow_(row) {
       ? normalizeYesNo_(explicitCover, false)
       : inferCoverEligibleThisBlock_(assignmentType, subject)
   };
+
+  // A row with no Class (e.g. "(Art Thursdays)") still has students: Class
+  // Schedule says which section this teacher has then. With that grade, a
+  // field trip for the grade cancels the row and releases the teacher, just
+  // like a row whose Class names the section.
+  if (!normalized.grade && normalized.needsCoverageIfAbsent) {
+    const match = classScheduleGradeFor_(normalized);
+    if (match && match.grade) {
+      normalized.grade = match.grade;
+      normalized.gradeSource = 'Class Schedule';
+      normalized.sections = match.sections;
+      if (!rawClassName) {
+        normalized.className = buildClassDisplayName_(match.sections.join('/'), subject, assignmentType);
+      }
+    }
+  }
+
+  return normalized;
 }
 
 function buildClassDisplayName_(className, subject, assignmentType) {
@@ -2688,19 +3091,38 @@ function buildClassDisplayName_(className, subject, assignmentType) {
   return rawClass + ' — ' + rawSubject;
 }
 
+// Reads a grade only from a Class label that names a student group: a
+// section or grade label at the start ("7D", "6B — Homeroom", "7th Grade",
+// "Grade 3", "KA", "PreK A", "Beg B"). Anything else has no grade.
+//
+// This used to pull the first number out of any text, including the Subject
+// when Class was blank. On the real schedule that turned "8:30-9:15" into
+// grade 8, "Office 4" into grade 4 and "(Art in Rm. 24)" into grade 24, and
+// every one of those rows would be cancelled as a class whenever that grade
+// went on a field trip. Course names like "Algebra 1" or "Spanish 2" would
+// have been read as grades 1 and 2 the same way. An unknown grade is the safe
+// failure: the row still gets coverage instead of being silently cancelled.
 function inferGradeFromClass_(className) {
   const raw = String(className || '').trim();
   if (!raw) return '';
-  const normalized = normalizeGradeKey_(raw);
-  if (normalized !== raw) return normalized;
+  // Plan rows use "Class — Subject" display names; only the Class part counts.
+  const label = raw.split(/\s+[—–-]\s+/)[0].trim();
 
-  const lower = raw.toLowerCase();
-  if (lower.indexOf('beginner') !== -1) return 'Beg';
-  if (lower.indexOf('pre-k') !== -1 || lower.indexOf('prek') !== -1 || lower.indexOf('prekind') !== -1) return 'PreK';
-  if (lower.indexOf('kindergarten') !== -1) return 'K';
+  if (/^beg(inners?)?(\s+[a-z])?$/i.test(label)) return 'Beg';
+  if (/^pre[\s-]?k(indergarten)?(\s*[a-z])?$/i.test(label)) return 'PreK';
+  if (/^k[a-z]?$/i.test(label) || /^kindergarten(\s+[a-z])?$/i.test(label) || /^k\s+[a-z]$/i.test(label)) return 'K';
 
-  const match = raw.match(/\d+/);
-  return match ? String(Number(match[0])) : '';
+  const leading = label.match(/^(\d{1,2})(?:st|nd|rd|th)?(?:\s*grade)?\s*[a-z]?(?=\s|$)/i);
+  if (leading) {
+    const n = Number(leading[1]);
+    return n >= 1 && n <= 12 ? String(n) : '';
+  }
+  const named = label.match(/^grade\s*(\d{1,2})(?:\s*[a-z])?(?=\s|$)/i);
+  if (named) {
+    const n = Number(named[1]);
+    return n >= 1 && n <= 12 ? String(n) : '';
+  }
+  return '';
 }
 
 function inferNeedsCoverageIfAbsent_(assignmentType, subject) {
@@ -2718,9 +3140,10 @@ function inferCoverEligibleThisBlock_(assignmentType, subject) {
   const s = String(subject || '').trim().toLowerCase();
 
   if (type === 'class' || type === 'homeroom' || type === 'duty') return false;
+  if (type === 'lunch') return lunchCoverageAllowed_();
   if (type === 'planning' || type === 'break') return true;
   if (s.indexOf('plan') !== -1 || s.indexOf('break') !== -1) return true;
-  if (s.indexOf('lunch') !== -1) return false;
+  if (s.indexOf('lunch') !== -1) return lunchCoverageAllowed_();
   return false;
 }
 
@@ -2745,8 +3168,11 @@ function normalizeCoverageStaffRow_(row, config) {
     allowedGrades: normalizeAllowedField_(row.Allowed_Grades),
     allowedSubjects: normalizeAllowedField_(row.Allowed_Subjects),
     allowedAssignmentTypes: normalizeAllowedField_(row.Allowed_Assignment_Types),
-    maxBlocksPerDay: rawMaxBlocks === '' ? Infinity : Number(rawMaxBlocks),
-    maxTeachersPerDay: rawMaxTeachers === '' ? Infinity : Number(rawMaxTeachers),
+    maxBlocksPerDay: resolveDailyLimit_(rawMaxBlocks, config, 'Default_Max_Blocks_Per_Day'),
+    maxTeachersPerDay: resolveDailyLimit_(rawMaxTeachers, config, 'Default_Max_Teachers_Per_Day'),
+    // What the sheet actually says (blank = use the Config default), for editing.
+    rawMaxBlocksPerDay: rawMaxBlocks,
+    rawMaxTeachersPerDay: rawMaxTeachers,
     canBeSplitAcrossTeachers: normalizeYesNo_(row.Can_Be_Split_Across_Teachers, true),
     notes: String(row.Notes || '').trim()
   };
@@ -2796,7 +3222,7 @@ function getCoverageStaffForDate_(date, day, config) {
 function applySubstituteAvailabilityOverrides_(coverageStaff, date, day) {
   const dateKey = normalizeDateKey_(date);
   const dayCode = String(day || guessDayCodeFromDate_(dateKey) || '').trim();
-  const overrides = getSubstituteAvailabilityMap_(dateKey, dayCode);
+  const overrides = availabilityOverridesEnabled_() ? getSubstituteAvailabilityMap_(dateKey, dayCode) : {};
 
   return coverageStaff.map(candidate => {
     const dayAllowed = isAvailableOnDay_(candidate.availableDays, dayCode);
@@ -2841,7 +3267,14 @@ function getSubstituteAvailabilityMap_(date, day) {
 }
 
 function upsertSubstituteAvailability(payload) {
+  return withCoverageLock_(() => upsertSubstituteAvailabilityUnlocked_(payload));
+}
+
+function upsertSubstituteAvailabilityUnlocked_(payload) {
   payload = payload || {};
+  if (!availabilityOverridesEnabled_()) {
+    throw new Error('Per-day availability changes are turned off (Config: Availability_Override_Mode is OFF), so this change would be ignored. Set it to DATE to use the availability switches.');
+  }
   const date = normalizeDateKey_(payload.date);
   const day = String(payload.day || guessDayCodeFromDate_(date) || '').trim();
   const name = String(payload.name || '').trim();
@@ -2936,10 +3369,12 @@ function candidateAvailabilityWindowAllowsBlock_(candidate, block) {
 
 function inferAssignmentType_(row) {
   const subject = String(row.Subject || '').toLowerCase();
+  // Duty first: "Lunch Duty" is supervision that needs coverage, not the
+  // teacher's own lunch.
+  if (subject.indexOf('duty') !== -1) return 'Duty';
   if (subject.indexOf('lunch') !== -1) return 'Lunch';
   if (subject.indexOf('break') !== -1) return 'Break';
   if (subject.indexOf('plan') !== -1) return 'Planning';
-  if (subject.indexOf('duty') !== -1) return 'Duty';
   if (subject.indexOf('homeroom') !== -1) return 'Homeroom';
   return 'Class';
 }
@@ -3078,6 +3513,73 @@ function getConfigMap_() {
   return map;
 }
 
+// ── Config ────────────────────────────────────────────────────────────────
+// Read once per server call. setup.gs clears this after seeding Config.
+let COVERAGE_CONFIG_CACHE_ = null;
+
+function coverageConfig_() {
+  if (!COVERAGE_CONFIG_CACHE_) {
+    try {
+      COVERAGE_CONFIG_CACHE_ = getConfigMap_();
+    } catch (err) {
+      // No active workbook yet (e.g. before the web app attaches to it).
+      return {};
+    }
+  }
+  return COVERAGE_CONFIG_CACHE_;
+}
+
+// Script_Time_Zone, when it is a real zone name; otherwise the project zone.
+// An unrecognized name is ignored rather than trusted, because Apps Script
+// silently treats unknown zones as GMT, which would shift every time.
+function coverageTimeZone_() {
+  const configured = String(coverageConfig_().Script_Time_Zone || '').trim();
+  if (/^(?:[A-Za-z_]+(?:\/[A-Za-z0-9_+\-]+)+|UTC|GMT|Etc\/[A-Za-z0-9+\-]+)$/.test(configured)) return configured;
+  return Session.getScriptTimeZone();
+}
+
+function lunchCoverageAllowed_() {
+  return normalizeYesNo_(coverageConfig_().Use_Lunch_For_Coverage, false);
+}
+
+// Availability_Override_Mode: DATE (default) applies Substitute Availability
+// rows for the selected date; OFF ignores them and uses Coverage Staff
+// defaults only.
+function availabilityOverridesEnabled_() {
+  const mode = String(coverageConfig_().Availability_Override_Mode || 'DATE').trim().toUpperCase();
+  return ['OFF', 'NONE', 'IGNORE', 'DEFAULTS'].indexOf(mode) === -1;
+}
+
+function parseDailyLimit_(value) {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return null;
+  const num = Number(raw);
+  return Number.isInteger(num) && num >= 1 ? num : null;
+}
+
+// A person's own Max_* value wins; blank (or unreadable) falls back to the
+// Config default; a blank default means no limit.
+function resolveDailyLimit_(rawValue, config, defaultKey) {
+  const own = parseDailyLimit_(rawValue);
+  if (own != null) return own;
+  const fallback = parseDailyLimit_((config || coverageConfig_())[defaultKey]);
+  return fallback != null ? fallback : Infinity;
+}
+
+// True when two absences describe the same window for the same person.
+function sameAbsenceWindow_(a, b) {
+  if (String(a.staffName || '').trim() !== String(b.staffName || '').trim()) return false;
+  if (!!a.emergency !== !!b.emergency) return false;
+  const shape = x => ({
+    absenceType: x.allDay === true || String(x.absenceType || '').trim() === 'Full Day' || x.emergency ? 'Full Day' : 'Partial Day',
+    startOverride: x.startOverride,
+    endOverride: x.endOverride
+  });
+  const wa = absenceWindowMinutes_(shape(a));
+  const wb = absenceWindowMinutes_(shape(b));
+  return wa.startMinutes === wb.startMinutes && wa.endMinutes === wb.endMinutes;
+}
+
 function normalizeYesNo_(value, defaultValue) {
   if (value === '' || value == null) return !!defaultValue;
   const str = String(value).trim().toLowerCase();
@@ -3089,13 +3591,13 @@ function normalizeYesNo_(value, defaultValue) {
 function normalizeDateKey_(value) {
   if (!value) return '';
   if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) {
-    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    return Utilities.formatDate(value, coverageTimeZone_(), 'yyyy-MM-dd');
   }
   const str = String(value).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
   const parsed = new Date(str);
   if (!isNaN(parsed)) {
-    return Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    return Utilities.formatDate(parsed, coverageTimeZone_(), 'yyyy-MM-dd');
   }
   return str;
 }
@@ -3109,7 +3611,12 @@ function guessDayCodeFromDate_(dateStr) {
 function timeToMinutes_(value) {
   if (value == null || value === '') return null;
   if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) {
-    return value.getHours() * 60 + value.getMinutes();
+    // Read the clock time in the same zone used to display it, so parsing and
+    // display can never disagree when Script_Time_Zone is set.
+    const zone = coverageTimeZone_();
+    if (zone === Session.getScriptTimeZone()) return value.getHours() * 60 + value.getMinutes();
+    const parts = Utilities.formatDate(value, zone, 'H:mm').split(':');
+    return Number(parts[0]) * 60 + Number(parts[1]);
   }
   const str = String(value).trim();
   const match = str.match(/^(\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i);
@@ -3131,7 +3638,7 @@ function displayTimeToMinutes_(value) {
 function timeToDisplay_(value) {
   if (value == null || value === '') return '';
   if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) {
-    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'h:mm a');
+    return Utilities.formatDate(value, coverageTimeZone_(), 'h:mm a');
   }
   const mins = timeToMinutes_(value);
   return mins == null ? String(value) : minutesToDisplay_(mins);
@@ -3191,144 +3698,3 @@ function backfillTeacherScheduleDerivedFields() {
   sheet.getRange(2, 1, out.length, headers.length).setValues(out);
 }
 
-
-function createCoverageHandoutDocFromLatestPreview() {
-  const preview = getLatestPreview_();
-  const rows = (preview.rows || []).filter(r => String(r.Status || '').trim() === 'Assigned');
-
-  if (!rows.length) {
-    throw new Error('No assigned preview rows found to build handouts.');
-  }
-
-  const date = normalizeDateKey_(rows[0].Date) || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  const day = String(rows[0].Day || '').trim();
-
-  return createCoverageHandoutDoc_(rows, date, day);
-}
-
-function createCoverageHandoutDocFromCoverageOutput(date, day) {
-  let rows = readSheetObjects_('Coverage Output');
-
-  if (date) rows = rows.filter(r => normalizeDateKey_(r.Date) === normalizeDateKey_(date));
-  if (day) rows = rows.filter(r => String(r.Day || '').trim() === String(day).trim());
-
-  rows = rows.filter(r => String(r.Status || '').trim() === 'Assigned');
-
-  if (!rows.length) {
-    throw new Error('No assigned rows found in Coverage Output for that selection.');
-  }
-
-  const finalDate = normalizeDateKey_(rows[0].Date) || normalizeDateKey_(date) || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  const finalDay = String(rows[0].Day || day || '').trim();
-
-  return createCoverageHandoutDoc_(rows, finalDate, finalDay);
-}
-
-function formatHandoutDocPage_(body) {
-  body.setPageWidth(792);
-  body.setPageHeight(612);
-  body.setMarginTop(24);
-  body.setMarginBottom(24);
-  body.setMarginLeft(24);
-  body.setMarginRight(24);
-}
-
-function formatHandoutTimeRange_(startValue, endValue) {
-  const start = timeToDisplay_(startValue);
-  const end = timeToDisplay_(endValue);
-  if (!start && !end) return '';
-  if (!start) return end;
-  if (!end) return start;
-  return start + '–' + end;
-}
-
-function styleHandoutTable_(table) {
-  table.setColumnWidth(0, 108);
-  table.setColumnWidth(1, 150);
-  table.setColumnWidth(2, 180);
-  table.setColumnWidth(3, 80);
-
-  const headerRow = table.getRow(0);
-  for (let c = 0; c < headerRow.getNumCells(); c++) {
-    headerRow.getCell(c).editAsText().setBold(true);
-  }
-}
-
-function createCoverageHandoutDoc_(rows, date, day) {
-  const grouped = {};
-
-  rows.forEach(row => {
-    const person = String(row.Assigned_Coverage || '').trim() || 'UNASSIGNED';
-    if (!grouped[person]) grouped[person] = [];
-    grouped[person].push(row);
-  });
-
-  const names = Object.keys(grouped)
-    .filter(name => name !== 'UNASSIGNED')
-    .sort((a, b) => a.localeCompare(b));
-
-  const doc = DocumentApp.create('Coverage Handouts - ' + date + (day ? ' - ' + day : ''));
-  const body = doc.getBody();
-  formatHandoutDocPage_(body);
-
-  names.forEach((name, index) => {
-    const personRows = grouped[name].slice().sort((a, b) => timeToMinutes_(a.Start) - timeToMinutes_(b.Start));
-
-    body.appendParagraph(name)
-      .setHeading(DocumentApp.ParagraphHeading.HEADING2);
-
-    body.appendParagraph('Coverage assignments for ' + date + (day ? ' (' + day + ')' : ''));
-
-    const tableData = [['Time', 'Absent Teacher', 'Subject', 'Room']];
-
-    personRows.forEach(r => {
-      tableData.push([
-        formatHandoutTimeRange_(r.Start, r.End),
-        String(r.Absent_Staff || ''),
-        String(r.Subject || ''),
-        String(r.Room || '')
-      ]);
-    });
-
-    const table = body.appendTable(tableData);
-    styleHandoutTable_(table);
-
-    if (index < names.length - 1) {
-      body.appendPageBreak();
-    }
-  });
-
-  const unfilled = rows.filter(r => !String(r.Assigned_Coverage || '').trim());
-  if (unfilled.length) {
-    if (names.length) body.appendPageBreak();
-
-    body.appendParagraph('Unfilled Coverage')
-      .setHeading(DocumentApp.ParagraphHeading.HEADING2);
-
-    body.appendParagraph('Items still unfilled for ' + date + (day ? ' (' + day + ')' : ''));
-
-    const tableData = [['Time', 'Absent Teacher', 'Subject', 'Room']];
-
-    unfilled
-      .sort((a, b) => timeToMinutes_(a.Start) - timeToMinutes_(b.Start))
-      .forEach(r => {
-        tableData.push([
-          formatHandoutTimeRange_(r.Start, r.End),
-          String(r.Absent_Staff || ''),
-          String(r.Subject || ''),
-          String(r.Room || '')
-        ]);
-      });
-
-    const table = body.appendTable(tableData);
-    styleHandoutTable_(table);
-  }
-
-  doc.saveAndClose();
-
-  return {
-    id: doc.getId(),
-    url: doc.getUrl(),
-    name: doc.getName()
-  };
-}

@@ -181,6 +181,7 @@ function getFieldTripUi_() {
     document.getElementById('ftEnd').value=trip?inputTime(trip.end):'14:00';
     document.getElementById('ftNotes').value=trip?trip.notes:'';
     document.getElementById('deleteFieldTripBtn').classList.toggle('hidden',!trip);
+    resetDeleteButton();
     renderGrades(trip?trip.grades:[]);
     document.getElementById('ftStaffSearch').value='';
     renderStaff();
@@ -212,8 +213,27 @@ function getFieldTripUi_() {
     }catch(e){fail(e)}
   }
 
+  var deleteArmed=false,deleteArmTimer=null;
+  function resetDeleteButton(){
+    var btn=document.getElementById('deleteFieldTripBtn');
+    deleteArmed=false;
+    clearTimeout(deleteArmTimer);
+    if(btn&&btn.dataset.label)btn.textContent=btn.dataset.label;
+  }
   async function deleteFieldTrip(){
     if(!editingEventId)return;
+    var btn=document.getElementById('deleteFieldTripBtn');
+    if(!deleteArmed){
+      // First click only arms the button: a trip can span several days and
+      // drives who is available, so one stray click should not delete it.
+      deleteArmed=true;
+      btn.dataset.label=btn.dataset.label||btn.textContent;
+      btn.textContent='Click again to delete';
+      clearTimeout(deleteArmTimer);
+      deleteArmTimer=setTimeout(resetDeleteButton,4000);
+      return;
+    }
+    resetDeleteButton();
     try{
       await gas('webDeleteFieldTrip',{eventId:editingEventId});
       closeModal('fieldTripModal');
