@@ -259,104 +259,6 @@ function getFieldTripUi_() {
     list.innerHTML=tripHtml+existing;
   }
 
-  function fieldTripPlanRows(trip){
-    var linked=(S.plan||[]).map(function(row,index){return {row:row,index:index};}).filter(function(item){
-      return String(item.row.Event_ID||'')===String(trip.eventId||'');
-    });
-    if(linked.length)return linked;
-
-    // Backward-compatible fallback for previews generated before Event_ID was
-    // added to _Preview: match trip participants during today's trip window.
-    var staff={};
-    (trip.staffNames||[]).forEach(function(name){staff[String(name)]=true;});
-    var start=trip.effectiveStartMinutes!=null?Number(trip.effectiveStartMinutes):mins(trip.start);
-    var end=trip.effectiveEndMinutes!=null?Number(trip.effectiveEndMinutes):mins(trip.end);
-    return (S.plan||[]).map(function(row,index){return {row:row,index:index};}).filter(function(item){
-      if(!staff[String(item.row.Absent_Staff||'')])return false;
-      var rowStart=mins(item.row.Start),rowEnd=mins(item.row.End);
-      return rowStart<end&&rowEnd>start;
-    });
-  }
-
-  function fieldTripReleasedStaff(trip){
-    return (S.fieldTripCoverage||[]).filter(function(person){
-      return (person.fieldTripEvents||[]).some(function(event){return String(event.eventId||'')===String(trip.eventId||'');});
-    }).map(function(person){return person.name;}).filter(Boolean).sort();
-  }
-
-  function tripWindowText(trip){
-    var startDate=trip.startDate||trip.date,endDate=trip.endDate||startDate,active=trip.activeDate||S.date;
-    if(startDate===endDate)return trip.start+'–'+trip.end;
-    if(active===startDate)return 'Departs '+trip.start;
-    if(active===endDate)return 'Returns '+trip.end;
-    return 'Overnight · all day';
-  }
-
-  function renderFieldTripPlanSummary(){
-    var trips=S.fieldTrips||[];
-    if(!trips.length||S.generating)return '';
-
-    return '<div class="ft-plan-wrap">'+trips.map(function(trip){
-      var rows=fieldTripPlanRows(trip);
-      var onTrip=(trip.staffNames||[]);
-      var released=fieldTripReleasedStaff(trip);
-      var grades=(trip.grades||[]).join(', ');
-      var assignments=rows.length
-        ? '<div class="ft-plan-lines">'+rows.map(function(item){
-            var r=item.row;
-            var classText=r.Class||r.Subject||r.Assignment_Type||'Coverage block';
-            var coverage=r.Assigned_Coverage||'Unfilled';
-            var why=String(r.Notes||'').trim()||'No scheduling explanation recorded.';
-            return '<div class="ft-plan-line" data-ft-plan-block="'+item.index+'"><span class="mono">'+esc(timeDisplay(r.Start))+'–'+esc(timeDisplay(r.End))+'</span><span class="ft-plan-who">'+esc(r.Absent_Staff)+' · '+esc(classText)+'</span><span class="ft-plan-cover '+(r.Assigned_Coverage?'':'unfilled')+'">'+esc(coverage)+'</span><span class="ft-plan-why">'+esc(why)+'</span><button type="button" class="ft-plan-change" data-ft-plan-block="'+item.index+'">Change</button></div>';
-          }).join('')+'</div>'
-        : '<div class="ft-plan-none">No field-trip coverage rows are in the current plan. <button type="button" class="ft-plan-edit" data-ft-generate-plan="1" style="margin-left:6px">Generate Coverage Plan</button></div>';
-
-      var poolNote=rows.length
-        ? '<div class="ft-plan-value">'+released.length+' trip-grade teacher'+(released.length===1?'':'s')+' evaluated against these specific coverage times; normal Coverage Staff are fallback only.</div>'
-        : '<div class="ft-plan-value">Trip-grade teachers will be checked against each specific coverage time when the plan is generated.</div>';
-
-      return '<div class="ft-plan-card">'+
-        '<div class="ft-plan-hd"><div><div class="ft-plan-title">'+esc(trip.name||'Field Trip')+' <span class="ft-badge">Field Trip</span></div><div class="ft-plan-sub">Grades '+esc(grades||'—')+' · '+esc(tripWindowText(trip))+'</div></div><div class="sp-r"></div><button class="ft-plan-edit" data-plan-edit-fieldtrip="'+esc(trip.eventId)+'">View / Edit Trip</button></div>'+
-        '<div class="ft-plan-section"><div class="ft-plan-label">Staff on trip</div><div class="ft-plan-value">'+esc(onTrip.length?onTrip.join(', '):'No staff selected')+'</div></div>'+
-        '<div class="ft-plan-section"><div class="ft-plan-label">Coverage plan for classes still at school · assignment / why available</div><div class="ft-plan-value" style="margin-bottom:4px;color:var(--text-muted,#6b7280)">Use <strong>Change</strong> to manually place another eligible person. Absent or conflicting staff will not be offered.</div>'+assignments+'</div>'+
-        '<div class="ft-plan-section"><div class="ft-plan-label">Scheduling rule</div>'+poolNote+'</div>'+
-      '</div>';
-    }).join('')+'</div>';
-  }
-
-  var baseRenderPlan=renderPlan;
-  function triggerCoverageGeneration(){
-    var topButton=document.getElementById('generateBtn');
-    if(topButton){
-      topButton.click();
-      return;
-    }
-    if(typeof generate==='function'){
-      generate();
-      return;
-    }
-    flash('Coverage generator is not available. Refresh the page and try again.','warn');
-  }
-
-  renderPlan=function(){
-    baseRenderPlan();
-    var summary=renderFieldTripPlanSummary();
-    if(summary){
-      var body=document.getElementById('planBody');
-      body.insertAdjacentHTML('afterbegin',summary);
-
-      // These buttons are inserted dynamically after the page-level event
-      // bindings run, so bind them directly each time the plan is rendered.
-      body.querySelectorAll('[data-ft-generate-plan]').forEach(function(button){
-        button.addEventListener('click',function(e){
-          e.preventDefault();
-          e.stopPropagation();
-          triggerCoverageGeneration();
-        });
-      });
-    }
-  };
-
   var baseRenderAbsences=renderAbsences;
   renderAbsences=function(){
     baseRenderAbsences();
@@ -465,22 +367,6 @@ function getFieldTripUi_() {
   document.getElementById('absenceList').addEventListener('click',function(e){
     var b=e.target.closest('[data-edit-fieldtrip]');
     if(b)window.openFieldTripModal(b.dataset.editFieldtrip);
-  });
-  document.getElementById('planBody').addEventListener('click',function(e){
-    var edit=e.target.closest('[data-plan-edit-fieldtrip]');
-    if(edit){
-      window.openFieldTripModal(edit.dataset.planEditFieldtrip);
-      return;
-    }
-    var generateButton=e.target.closest('[data-ft-generate-plan]');
-    if(generateButton){
-      e.preventDefault();
-      e.stopPropagation();
-      triggerCoverageGeneration();
-      return;
-    }
-    var block=e.target.closest('[data-ft-plan-block]');
-    if(block)openBlock(Number(block.dataset.ftPlanBlock));
   });
   document.getElementById('calendarGrid').addEventListener('click',function(e){
     var tripButton=e.target.closest('[data-calendar-trip]');
