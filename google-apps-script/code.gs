@@ -1,3 +1,5 @@
+const COVERAGE_WEB_API_VERSION = 3;
+
 const APP_TITLE = 'Coverage Scheduler';
 const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
 
@@ -467,6 +469,13 @@ function webGetBootstrap(payload) {
   if (!safe || !safe.today) {
     throw new Error('Coverage Scheduler startup data was invalid before it reached the browser.');
   }
+
+  safe.webApiVersion = COVERAGE_WEB_API_VERSION;
+  safe.webCapabilities = {
+    manualCoveragePlacement: true,
+    unifiedFieldTripPlan: true,
+    fieldTripContinuityScheduling: true
+  };
 
   return safe;
 }
