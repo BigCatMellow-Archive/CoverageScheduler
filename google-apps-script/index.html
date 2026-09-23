@@ -121,7 +121,7 @@
 
 <div id="confirmModal" class="overlay hidden"><div class="modal modal-sm"><div class="m-hd"><h2>Remove Coverage Staff?</h2><button class="m-x" data-close="confirmModal">×</button></div><div class="m-body"><p id="confirmText" style="font-size:12px;line-height:1.55;color:#475569"></p><p class="hint" style="margin-top:8px">Saved historical coverage output is not deleted.</p></div><div class="m-ft"><div class="sp-r"></div><button class="btn-cancel" data-close="confirmModal">Cancel</button><button id="confirmRemoveCoverage" class="btn-del">Remove</button></div></div></div>
 
-<div id="blockModal" class="overlay hidden"><div class="modal modal-sm"><div class="m-hd"><h2>Reassign Block</h2><button class="m-x" data-close="blockModal">×</button></div><div class="m-body"><div id="blockInfo" class="block-info"></div><div class="fg"><label class="fl">Assign Coverage To</label><select id="blockCoverage" class="fs"></select></div></div><div class="m-ft"><div class="sp-r"></div><button class="btn-cancel" data-close="blockModal">Cancel</button><button id="saveBlockBtn" class="btn-save">Save Assignment</button></div></div></div>
+<div id="blockModal" class="overlay hidden"><div class="modal modal-sm"><div class="m-hd"><h2>Reassign Block</h2><button class="m-x" data-close="blockModal">×</button></div><div class="m-body"><div id="blockInfo" class="block-info"></div><div class="fg"><label class="fl">Assign Coverage To</label><select id="blockCoverage" class="fs"></select><div id="blockCoverageHint" class="hint">Only staff who are actually available for this exact block will appear.</div></div></div><div class="m-ft"><div class="sp-r"></div><button class="btn-cancel" data-close="blockModal">Cancel</button><button id="saveBlockBtn" class="btn-save">Save Assignment</button></div></div></div>
 
 <script>
 const S={date:'',day:'',allStaff:[],coverage:[],fieldTripCoverage:[],absences:[],fieldTrips:[],plan:[],view:'timeline',generating:false,editingAbsence:null,editingCoverage:null,editingBlock:null,pendingDelete:null};
@@ -174,8 +174,105 @@ function requestRemoveCoverage(){if(!S.editingCoverage)return;S.pendingDelete=S.
 async function confirmRemoveCoverage(){if(!S.pendingDelete)return;try{S.coverage=await gas('webDeleteCoverageStaff',{name:S.pendingDelete,date:S.date,day:S.day})||[];S.pendingDelete=null;closeModal('confirmModal');closeModal('coverageModal');renderCoverage();populatePreferredCoverage();flash('Coverage staff removed.')}catch(e){fail(e)}}
 async function toggleCoverage(name,available){try{S.coverage=await gas('webToggleCoverageStaff',{name,date:S.date,day:S.day,available})||[];renderCoverage();populatePreferredCoverage();flash(name+(available?' is available today.':' is unavailable today.'))}catch(e){fail(e);renderCoverage()}}
 
-function openBlock(index){const r=S.plan[index];if(!r)return;S.editingBlock=index;$('blockInfo').innerHTML='<strong>'+esc(r.Class||r.Subject||r.Assignment_Type)+' — '+esc(r.Absent_Staff)+'</strong><div>'+esc(timeDisplay(r.Start))+' – '+esc(timeDisplay(r.End))+' · '+esc(r.Room||'No room')+'</div>';const choices=coverageChoices().filter(c=>c.activeToday);$('blockCoverage').innerHTML='<option value="">— Leave unfilled —</option>'+choices.map(c=>'<option value="'+esc(c.name)+'">'+esc(c.name+(c.fieldTripOnly?' (Field Trip Pool)':' (Tier '+c.tier+')'))+'</option>').join('');$('blockCoverage').value=r.Assigned_Coverage||'';showModal('blockModal')}
-function saveBlock(){const i=S.editingBlock;if(i==null)return;const name=$('blockCoverage').value,c=coverageMatch(name),r=S.plan[i];r.Assigned_Coverage=name;r.Status=name?'Assigned':'Unfilled';r.Coverage_Mode=name?'Manual':'';r.Coverage_Tier_Used=c?c.tier:'';r.Notes=name?'Manually assigned in web app.':'Manually left unfilled in web app.';closeModal('blockModal');renderAll();flash(name?'Block assigned to '+name+'.':'Block marked unfilled.','ok')}
+async function openBlock(index){
+  const r=S.plan[index];
+  if(!r)return;
+  S.editingBlock=index;
+  $('blockInfo').innerHTML='<strong>'+esc(r.Class||r.Subject||r.Assignment_Type)+' — '+esc(r.Absent_Staff)+'</strong><div>'+esc(timeDisplay(r.Start))+' – '+esc(timeDisplay(r.End))+' · '+esc(r.Room||'No room')+'</div>';
+  $('blockCoverage').disabled=true;
+  $('saveBlockBtn').disabled=true;
+  $('blockCoverage').innerHTML='<option value="">Loading available staff…</option>';
+  $('blockCoverageHint').textContent='Checking live absences, field trips, schedules, and existing coverage assignments…';
+  showModal('blockModal');
+
+  try{
+    const result=await gas('webGetManualCoverageChoices',{
+      date:S.date,
+      day:S.day,
+      rows:S.plan,
+      blockIndex:index
+    });
+    if(S.editingBlock!==index)return;
+
+    const choices=(result&&result.choices)||[];
+    let html='<option value="">— Leave unfilled —</option>';
+    const groups=['Field Trip Pool','Coverage Staff','Available Staff'];
+
+    groups.forEach(group=>{
+      const rows=choices.filter(c=>c.source===group);
+      if(!rows.length)return;
+      html+='<optgroup label="'+esc(group)+'">';
+      rows.forEach(choice=>{
+        const detail=choice.source==='Coverage Staff'&&choice.tier?' · Tier '+choice.tier:'';
+        html+='<option value="'+esc(choice.name)+'">'+esc(choice.name+detail)+'</option>';
+      });
+      html+='</optgroup>';
+    });
+
+    $('blockCoverage').innerHTML=html;
+    $('blockCoverage').disabled=false;
+    $('saveBlockBtn').disabled=false;
+
+    const current=r.Assigned_Coverage||'';
+    if(current&&choices.some(choice=>choice.name===current)){
+      $('blockCoverage').value=current;
+    }else if(current){
+      const unavailable=document.createElement('option');
+      unavailable.value=current;
+      unavailable.textContent=current+' — currently unavailable';
+      unavailable.disabled=true;
+      unavailable.selected=true;
+      $('blockCoverage').insertBefore(unavailable,$('blockCoverage').firstChild);
+    }else{
+      $('blockCoverage').value='';
+    }
+
+    const absentCount=((result&&result.excludedAbsentNames)||[]).length;
+    $('blockCoverageHint').textContent=
+      'Only people available for this exact block are shown. '+
+      'Absent staff, staff on the trip, schedule conflicts, and people already covering another block at this time are excluded.'+
+      (absentCount?' '+absentCount+' otherwise possible staff member'+(absentCount===1?' is':'s are')+' absent during this block.':'');
+  }catch(e){
+    $('blockCoverage').innerHTML='<option value="">Unable to load choices</option>';
+    $('blockCoverageHint').textContent=e.message||String(e);
+    fail(e);
+  }
+}
+
+async function saveBlock(){
+  const i=S.editingBlock;
+  if(i==null)return;
+  const r=S.plan[i];
+  const name=$('blockCoverage').value;
+
+  $('saveBlockBtn').disabled=true;
+  try{
+    const validation=await gas('webValidateManualCoverageAssignment',{
+      date:S.date,
+      day:S.day,
+      rows:S.plan,
+      blockIndex:i,
+      name:name
+    });
+
+    r.Assigned_Coverage=validation.name||'';
+    r.Status=validation.name?'Assigned':'Unfilled';
+    r.Coverage_Mode=validation.name?'Manual':'';
+    r.Coverage_Tier_Used=validation.tier==null?'':String(validation.tier||'');
+    r.Notes=validation.reason||(
+      validation.name?'Manually assigned in web app.':'Manually left unfilled in web app.'
+    );
+
+    closeModal('blockModal');
+    renderAll();
+    flash(validation.name?'Block assigned to '+validation.name+'.':'Block marked unfilled.','ok');
+  }catch(e){
+    fail(e);
+    await openBlock(i);
+  }finally{
+    $('saveBlockBtn').disabled=false;
+  }
+}
 
 async function generate(){if(!S.absences.length&&!S.fieldTrips.length)return;S.generating=true;S.plan=[];renderPlan();renderStats();try{const result=await gas('webGenerateCoverage',{date:S.date,day:S.day});S.plan=result.rows||[];S.fieldTripCoverage=(result.activeCoverageStaff||[]).filter(c=>(c.fieldTripEvents||[]).length);const u=(result.summary&&result.summary.unfilledBlocks)||0;flash('Plan generated — '+S.plan.length+' coverage block'+(S.plan.length===1?'':'s')+'.',u?'warn':'ok')}catch(e){fail(e)}finally{S.generating=false;renderAll()}}
 async function saveAndHandout(){try{const r=await gas('webSaveCoverageAndCreateHandout',S.plan);const saved=(r&&r.savedRows)||S.plan.length;if(r&&r.handout){flash('Saved '+saved+' row'+(saved===1?'':'s')+' and created '+(r.handout.name||'the handout')+'.')}else if(r&&r.handoutError){flash('Saved '+saved+' row'+(saved===1?'':'s')+', but the handout could not be created: '+r.handoutError,'warn')}else{flash('Saved '+saved+' row'+(saved===1?'':'s')+'. No assigned coverage was available for a handout.','warn')}}catch(e){fail(e)}}
