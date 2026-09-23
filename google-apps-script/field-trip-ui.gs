@@ -5,27 +5,6 @@ function getFieldTripUi_() {
   .field-trip-row{border-left:3px solid var(--accent,#f6b756)}
   .ft-meta{margin-top:4px;font-size:10px;color:var(--text-muted,#6b7280);line-height:1.35}
   .ft-people{margin-top:4px;font-size:10px;color:var(--text,#1f2937);line-height:1.35}
-  .ft-plan-wrap{margin:0 0 14px}
-  .ft-plan-card{margin-bottom:10px;padding:12px 13px;background:#fff;border:1px solid var(--border,#e2e5eb);border-left:4px solid var(--accent,#f6b756);border-radius:10px;box-shadow:var(--shadow-card,0 2px 5px rgba(0,0,0,.06))}
-  .ft-plan-hd{display:flex;align-items:flex-start;gap:10px}
-  .ft-plan-title{font-size:13px;font-weight:850;color:var(--text,#1f2937)}
-  .ft-plan-sub{margin-top:2px;font-size:10px;color:var(--text-muted,#6b7280)}
-  .ft-plan-edit{border:1px solid #d7dce5;background:#fff;color:var(--primary,#214289);border-radius:7px;padding:5px 8px;font-size:10px;font-weight:800;cursor:pointer}
-  .ft-plan-edit:hover{border-color:var(--primary,#214289);background:rgba(33,66,137,.045)}
-  .ft-plan-section{margin-top:9px}
-  .ft-plan-label{font-size:9px;font-weight:850;text-transform:uppercase;letter-spacing:.05em;color:#64748b}
-  .ft-plan-value{margin-top:3px;font-size:11px;color:var(--text,#1f2937);line-height:1.4}
-  .ft-plan-lines{margin-top:5px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden}
-  .ft-plan-line{display:grid;grid-template-columns:88px minmax(110px,1fr) minmax(120px,1fr) minmax(180px,1.5fr) auto;gap:8px;align-items:start;padding:7px 8px;border-bottom:1px solid #edf0f4;font-size:10px;cursor:pointer}
-  .ft-plan-line:last-child{border-bottom:0}
-  .ft-plan-line:hover{background:#f7f8fb}
-  .ft-plan-who{font-weight:750;color:var(--text,#1f2937)}
-  .ft-plan-cover{font-weight:800;color:var(--primary,#214289)}
-  .ft-plan-cover.unfilled{color:var(--error,#dc2626)}
-  .ft-plan-why{color:var(--text-muted,#6b7280);line-height:1.35}
-  .ft-plan-change{border:1px solid #d7dce5;background:#fff;color:var(--primary,#214289);border-radius:6px;padding:3px 6px;font-size:9px;font-weight:800;cursor:pointer;white-space:nowrap}
-  .ft-plan-change:hover{border-color:var(--primary,#214289);background:rgba(33,66,137,.045)}
-  .ft-plan-none{margin-top:5px;padding:7px 8px;border-radius:8px;background:#f7f8fb;color:var(--text-muted,#6b7280);font-size:10px}
   .ft-grade-grid{display:flex;flex-wrap:wrap;gap:6px}
   .ft-grade-check{position:relative}
   .ft-grade-check input{position:absolute;opacity:0;pointer-events:none}
@@ -259,104 +238,6 @@ function getFieldTripUi_() {
     list.innerHTML=tripHtml+existing;
   }
 
-  function fieldTripPlanRows(trip){
-    var linked=(S.plan||[]).map(function(row,index){return {row:row,index:index};}).filter(function(item){
-      return String(item.row.Event_ID||'')===String(trip.eventId||'');
-    });
-    if(linked.length)return linked;
-
-    // Backward-compatible fallback for previews generated before Event_ID was
-    // added to _Preview: match trip participants during today's trip window.
-    var staff={};
-    (trip.staffNames||[]).forEach(function(name){staff[String(name)]=true;});
-    var start=trip.effectiveStartMinutes!=null?Number(trip.effectiveStartMinutes):mins(trip.start);
-    var end=trip.effectiveEndMinutes!=null?Number(trip.effectiveEndMinutes):mins(trip.end);
-    return (S.plan||[]).map(function(row,index){return {row:row,index:index};}).filter(function(item){
-      if(!staff[String(item.row.Absent_Staff||'')])return false;
-      var rowStart=mins(item.row.Start),rowEnd=mins(item.row.End);
-      return rowStart<end&&rowEnd>start;
-    });
-  }
-
-  function fieldTripReleasedStaff(trip){
-    return (S.fieldTripCoverage||[]).filter(function(person){
-      return (person.fieldTripEvents||[]).some(function(event){return String(event.eventId||'')===String(trip.eventId||'');});
-    }).map(function(person){return person.name;}).filter(Boolean).sort();
-  }
-
-  function tripWindowText(trip){
-    var startDate=trip.startDate||trip.date,endDate=trip.endDate||startDate,active=trip.activeDate||S.date;
-    if(startDate===endDate)return trip.start+'–'+trip.end;
-    if(active===startDate)return 'Departs '+trip.start;
-    if(active===endDate)return 'Returns '+trip.end;
-    return 'Overnight · all day';
-  }
-
-  function renderFieldTripPlanSummary(){
-    var trips=S.fieldTrips||[];
-    if(!trips.length||S.generating)return '';
-
-    return '<div class="ft-plan-wrap">'+trips.map(function(trip){
-      var rows=fieldTripPlanRows(trip);
-      var onTrip=(trip.staffNames||[]);
-      var released=fieldTripReleasedStaff(trip);
-      var grades=(trip.grades||[]).join(', ');
-      var assignments=rows.length
-        ? '<div class="ft-plan-lines">'+rows.map(function(item){
-            var r=item.row;
-            var classText=r.Class||r.Subject||r.Assignment_Type||'Coverage block';
-            var coverage=r.Assigned_Coverage||'Unfilled';
-            var why=String(r.Notes||'').trim()||'No scheduling explanation recorded.';
-            return '<div class="ft-plan-line" data-ft-plan-block="'+item.index+'"><span class="mono">'+esc(timeDisplay(r.Start))+'–'+esc(timeDisplay(r.End))+'</span><span class="ft-plan-who">'+esc(r.Absent_Staff)+' · '+esc(classText)+'</span><span class="ft-plan-cover '+(r.Assigned_Coverage?'':'unfilled')+'">'+esc(coverage)+'</span><span class="ft-plan-why">'+esc(why)+'</span><button type="button" class="ft-plan-change" data-ft-plan-block="'+item.index+'">Change</button></div>';
-          }).join('')+'</div>'
-        : '<div class="ft-plan-none">No field-trip coverage rows are in the current plan. <button type="button" class="ft-plan-edit" data-ft-generate-plan="1" style="margin-left:6px">Generate Coverage Plan</button></div>';
-
-      var poolNote=rows.length
-        ? '<div class="ft-plan-value">'+released.length+' trip-grade teacher'+(released.length===1?'':'s')+' evaluated against these specific coverage times; normal Coverage Staff are fallback only.</div>'
-        : '<div class="ft-plan-value">Trip-grade teachers will be checked against each specific coverage time when the plan is generated.</div>';
-
-      return '<div class="ft-plan-card">'+
-        '<div class="ft-plan-hd"><div><div class="ft-plan-title">'+esc(trip.name||'Field Trip')+' <span class="ft-badge">Field Trip</span></div><div class="ft-plan-sub">Grades '+esc(grades||'—')+' · '+esc(tripWindowText(trip))+'</div></div><div class="sp-r"></div><button class="ft-plan-edit" data-plan-edit-fieldtrip="'+esc(trip.eventId)+'">View / Edit Trip</button></div>'+
-        '<div class="ft-plan-section"><div class="ft-plan-label">Staff on trip</div><div class="ft-plan-value">'+esc(onTrip.length?onTrip.join(', '):'No staff selected')+'</div></div>'+
-        '<div class="ft-plan-section"><div class="ft-plan-label">Coverage plan for classes still at school · assignment / why available</div><div class="ft-plan-value" style="margin-bottom:4px;color:var(--text-muted,#6b7280)">Use <strong>Change</strong> to manually place another eligible person. Absent or conflicting staff will not be offered.</div>'+assignments+'</div>'+
-        '<div class="ft-plan-section"><div class="ft-plan-label">Scheduling rule</div>'+poolNote+'</div>'+
-      '</div>';
-    }).join('')+'</div>';
-  }
-
-  var baseRenderPlan=renderPlan;
-  function triggerCoverageGeneration(){
-    var topButton=document.getElementById('generateBtn');
-    if(topButton){
-      topButton.click();
-      return;
-    }
-    if(typeof generate==='function'){
-      generate();
-      return;
-    }
-    flash('Coverage generator is not available. Refresh the page and try again.','warn');
-  }
-
-  renderPlan=function(){
-    baseRenderPlan();
-    var summary=renderFieldTripPlanSummary();
-    if(summary){
-      var body=document.getElementById('planBody');
-      body.insertAdjacentHTML('afterbegin',summary);
-
-      // These buttons are inserted dynamically after the page-level event
-      // bindings run, so bind them directly each time the plan is rendered.
-      body.querySelectorAll('[data-ft-generate-plan]').forEach(function(button){
-        button.addEventListener('click',function(e){
-          e.preventDefault();
-          e.stopPropagation();
-          triggerCoverageGeneration();
-        });
-      });
-    }
-  };
-
   var baseRenderAbsences=renderAbsences;
   renderAbsences=function(){
     baseRenderAbsences();
@@ -465,22 +346,6 @@ function getFieldTripUi_() {
   document.getElementById('absenceList').addEventListener('click',function(e){
     var b=e.target.closest('[data-edit-fieldtrip]');
     if(b)window.openFieldTripModal(b.dataset.editFieldtrip);
-  });
-  document.getElementById('planBody').addEventListener('click',function(e){
-    var edit=e.target.closest('[data-plan-edit-fieldtrip]');
-    if(edit){
-      window.openFieldTripModal(edit.dataset.planEditFieldtrip);
-      return;
-    }
-    var generateButton=e.target.closest('[data-ft-generate-plan]');
-    if(generateButton){
-      e.preventDefault();
-      e.stopPropagation();
-      triggerCoverageGeneration();
-      return;
-    }
-    var block=e.target.closest('[data-ft-plan-block]');
-    if(block)openBlock(Number(block.dataset.ftPlanBlock));
   });
   document.getElementById('calendarGrid').addEventListener('click',function(e){
     var tripButton=e.target.closest('[data-calendar-trip]');
