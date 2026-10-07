@@ -355,6 +355,8 @@ function getHandoutOpenLinkUi_() {
     '<style>',
     '.notif .handout-open{display:inline-flex;align-items:center;margin-left:6px;padding:4px 8px;border-radius:6px;background:#166534;color:#fff;text-decoration:none;font-size:11px;font-weight:800;white-space:nowrap}',
     '.notif .handout-open:hover{background:#14532d}',
+    '.notif .handout-folder-open{background:#0f766e}',
+    '.notif .handout-folder-open:hover{background:#115e59}',
     '</style>',
     '<script>',
     'createHandout = async function(){',
@@ -363,8 +365,9 @@ function getHandoutOpenLinkUi_() {
     "    const n=$('notif');",
     "    const name=handout&&handout.name?handout.name:'Google Doc';",
     "    const url=handout&&handout.url?handout.url:'';",
+    "    const folderUrl=handout&&handout.folderUrl?handout.folderUrl:'';",
     "    n.className='notif ok';",
-    "    n.innerHTML='✓ Created '+esc(name)+'.'+(url?' <a class=\"handout-open\" href=\"'+esc(url)+'\" target=\"_blank\" rel=\"noopener noreferrer\">Open Handout ↗</a>':'')+'<button onclick=\"this.parentElement.classList.add(\\'hidden\\')\">×</button>';",
+    "    n.innerHTML='✓ Created '+esc(name)+' in the Handouts folder.'+(url?' <a class=\"handout-open\" href=\"'+esc(url)+'\" target=\"_blank\" rel=\"noopener noreferrer\">Open Handout ↗</a>':'')+(folderUrl?' <a class=\"handout-open handout-folder-open\" href=\"'+esc(folderUrl)+'\" target=\"_blank\" rel=\"noopener noreferrer\">Open Handouts Folder ↗</a>':'')+'<button onclick=\"this.parentElement.classList.add(\\'hidden\\')\">×</button>';",
     "    n.classList.remove('hidden');",
     "    clearTimeout(flash.t);",
     '  }catch(e){fail(e)}',
@@ -754,7 +757,7 @@ function menuCreateHandoutDoc() {
   const result = createCoverageHandoutDocWideFromLatestPreview_();
   SpreadsheetApp.getUi().alert(
     'Handout doc created',
-    result.name + '\n\n' + result.url,
+    result.name + '\n\nHandout:\n' + result.url + '\n\nHandouts folder:\n' + result.folderUrl,
     SpreadsheetApp.getUi().ButtonSet.OK
   );
 }
