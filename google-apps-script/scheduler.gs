@@ -165,7 +165,11 @@ function incrementCoverageMetric_(name) {
 }
 
 function persistentCoverageCacheKey_(sheetName) {
-  return COVERAGE_PERSISTENT_CACHE_KEYS_[String(sheetName || '')] || '';
+  const base = COVERAGE_PERSISTENT_CACHE_KEYS_[String(sheetName || '')] || '';
+  if (!base) return '';
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const workbookId = ss ? ss.getId() : 'unbound';
+  return base + ':' + workbookId;
 }
 
 function persistentCacheSafeRows_(rows) {
