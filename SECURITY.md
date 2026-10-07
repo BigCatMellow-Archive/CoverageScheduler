@@ -33,6 +33,6 @@ Use the least-privileged execution/deployment arrangement that works with the sc
 
 ## Performance cache privacy
 
-The performance layer does not introduce an external datastore. `Teacher Schedule` and `Config` may be held briefly in Google Apps Script `CacheService` (up to 60 seconds) to reduce repeated Spreadsheet service calls. Cache keys are scoped to the connected spreadsheet ID. Manual edits and application writes invalidate the relevant entries.
+The performance layer does not introduce an external datastore. `Config` may be held briefly in Google Apps Script `CacheService` (up to 60 seconds) to reduce repeated Spreadsheet service calls. `Teacher Schedule` is not persisted across requests; it is only cached in memory for the current server action so schedule-sensitive coverage decisions use the live Sheet values. Cache keys are scoped to the connected spreadsheet ID. Manual edits and application writes invalidate the relevant entries.
 
 Performance logs contain request names, timings, cache hit/read counts, and write counts only. They must not include staff names, absence notes, schedule rows, or assignment contents.
