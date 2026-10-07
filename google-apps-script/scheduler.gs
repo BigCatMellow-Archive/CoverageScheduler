@@ -1190,14 +1190,14 @@ function fieldTripCoveragePoolRowsForTrip_(trip, existingRows) {
             Source: source,
             Baseline_Score: baselineScore,
             Reason: reason,
-            Enabled: 'TRUE',
+            Enabled: 'Yes',
             Priority_Adjustment: 0,
             Built_At: builtAt
           };
 
           const previous = overrides[fieldTripCoveragePoolRowKey_(row)];
           if (previous) {
-            row.Enabled = previous.Enabled === '' || previous.Enabled == null ? 'TRUE' : previous.Enabled;
+            row.Enabled = previous.Enabled === '' || previous.Enabled == null ? 'Yes' : previous.Enabled;
             row.Priority_Adjustment = previous.Priority_Adjustment === '' || previous.Priority_Adjustment == null
               ? 0
               : previous.Priority_Adjustment;
