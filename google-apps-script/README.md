@@ -75,7 +75,7 @@ When updating an existing installation, keep the browser and server files in syn
 
 The web UI supports the normal workflow: choose a date, add/edit absences, create/edit/remove coverage staff, toggle daily coverage availability, generate the plan, inspect Timeline/Table/By Sub views, manually reassign blocks, then use **Save Plan** and **Create Handout** as separate actions. Both actions use the exact reviewed plan currently on screen, including manual reassignments.
 
-Field trips are first-class events rather than ordinary group absences. Use **+ Field Trip** to choose the departure date/time, return date/time, student grade(s), and staff going on the trip. For one-day trips, the start and end dates are the same. Overnight trips remain one event across the full date range. Use **Calendar** to see field trips and ordinary absences together and to reopen an event for editing.
+Field trips are first-class events rather than ordinary group absences. Use **+ Field Trip** to enter the trip name and destination, then choose the departure date/time, return date/time, student grade(s), and staff going on the trip. For one-day trips, the start and end dates are the same. Overnight trips remain one event across the full date range. Use **Calendar** to see field trips and ordinary absences together and to reopen an event for editing.
 
 Manual reassignment uses the same scheduling engine as automatic generation. The web app requests eligible choices for the selected block from the server, then validates the final selection again before changing the in-memory plan. Live daily absences, field-trip participant windows, existing plan assignments, Coverage Staff availability, and Teacher Schedule conflicts are all applied. Absence state supports multiple windows per person so one absence cannot overwrite another. Configured staff whose role is **Substitute** are presented in a separate **Subs** optgroup at the bottom of the assignment picker; grouping does not bypass any eligibility checks.
 
@@ -88,6 +88,8 @@ During generation, trip-grade classes are treated as cancelled while those stude
 ## Handouts
 
 The web app treats **Save Plan** and **Create Handout** as independent actions. **Save Plan** writes the reviewed plan to `Coverage Output`; **Create Handout** builds the Google Doc from the reviewed in-memory plan without saving it first. Manual block reassignments made after generation are therefore preserved in either action.
+
+For ordinary absence rows, handouts keep the generated landscape format. Field-trip rows use the Google Docs template configured in `Config` as `Field_Trip_Form_Template_ID`. The app copies that Doc into the Handouts folder and fills the copy; it never edits the source template. Each half-form is for one staff member who is on the trip and can hold up to six coverage assignments. A second half-form is used for the next staff member or a continuation, and extra template copies are created when needed. The `WITH` cell is populated only when Teacher Schedule resolves exactly one other regular teacher for the same class/block; ambiguous or missing matches remain blank.
 
 On the first handout creation for a workbook, the app creates (or reuses) a sibling Drive folder named `<Workbook Name> - Handouts`. Its folder ID is remembered for that workbook, and every later handout is moved into that same folder. The success message includes links to both the new handout and the folder, so the folder can be shared once instead of sharing each document individually.
 
