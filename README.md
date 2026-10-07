@@ -116,7 +116,7 @@ When the plan looks right, use the two actions independently:
 1. Click **Save Plan** to write the exact plan you are looking at to `Coverage Output`.
 2. Click **Create Handout** to build a Google Docs handout from the exact plan currently on screen and open it from the confirmation link.
 
-Saving does not create a handout, and creating a handout does not save the plan. Manual reassignments made after generation are still preserved because both actions use the reviewed on-screen plan. The handout is organized by coverage person so each person can see where they need to be and when.
+Saving does not create a handout, and creating a handout does not save the plan. Manual reassignments made after generation are still preserved because both actions use the reviewed on-screen plan. The handout is organized by coverage person so each person can see where they need to be and when. Every generated handout is stored in a persistent Drive folder named from the workbook, such as `2627 Coverage Scheduler - Handouts`, so that folder can be shared once with anyone who needs access.
 
 If there are no assigned coverage rows, the plan can still be saved, but there is nothing to include in a coverage-person handout.
 
