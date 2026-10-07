@@ -3,7 +3,7 @@ const COVERAGE_WEB_API_VERSION = 7;
 const APP_TITLE = 'Coverage Scheduler';
 const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
 const COVERAGE_SCHEMA_VERSION_PROPERTY = 'COVERAGE_SCHEMA_VERSION';
-const COVERAGE_SCHEMA_VERSION = '2026-10-07-perf-1';
+const COVERAGE_SCHEMA_VERSION = '2026-10-07-field-trip-cache-1';
 let COVERAGE_WEB_READY_THIS_REQUEST_ = false;
 
 function onOpen() {
@@ -25,7 +25,12 @@ function onOpen() {
 function onEdit(e) {
   try {
     const sheet = e && e.range ? e.range.getSheet() : null;
-    if (sheet) invalidateCoverageSheetCache_(sheet.getName());
+    if (sheet) {
+      invalidateCoverageSheetCache_(sheet.getName());
+      if (['Teacher Schedule', 'Field Trips', 'Config'].indexOf(sheet.getName()) !== -1) {
+        markFieldTripCoverageCacheDirty_();
+      }
+    }
   } catch (error) {
     // Cache invalidation is best-effort; an edit must never be blocked by it.
   }
