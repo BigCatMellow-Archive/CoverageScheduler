@@ -3241,7 +3241,7 @@ function pickBestBlockCandidate_(absentName, block, coverageStaff, teacherSchedu
         fieldTripReason: fieldTripReason,
         fieldTripBreakMove: availability.fieldTripBreakMove || null,
         fieldTripRunwayMinutes: runwayMinutes,
-        score: scoreInfo.score + fieldTripBoost + runwayBoost + Number(candidate.poolPriorityAdjustment || 0),
+        score: scoreInfo.score + fieldTripBoost + runwayBoost + poolPriorityAdjustment_(candidate.poolPriorityAdjustment),
         reason:
           (fieldTripReason ? fieldTripReason + '; ' : '') +
           (runwayReason ? runwayReason + '; ' : '') +
