@@ -1107,6 +1107,10 @@ function buildFieldTripCoverageCandidatesFromCache_(fieldTrips, date, activeCove
     });
   });
 
+  if (!(fieldTrips || []).length) {
+    return Object.keys(byName).map(name => byName[name]);
+  }
+
   const tripsById = {};
   (fieldTrips || []).forEach(trip => { tripsById[String(trip.eventId || '').trim()] = trip; });
 
@@ -1168,88 +1172,6 @@ function candidateHasFieldTripEvent_(candidate, eventId) {
   const id = String(eventId || '').trim();
   if (!id) return false;
   return (candidate.fieldTripEvents || []).some(event => String(event.eventId || '').trim() === id);
-}
-
-function buildFieldTripCoverageCandidates_(fieldTrips, teacherSchedule, day, activeCoverageStaff, configuredCoverageStaff) {
-  const normalized = teacherSchedule
-    .map(row => normalizeTeacherScheduleRow_(row))
-    .filter(row => row.day === day && row.staffName);
-
-  const configuredByName = {};
-  (configuredCoverageStaff || []).forEach(candidate => {
-    if (candidate && candidate.name) configuredByName[candidate.name] = candidate;
-  });
-
-  const byName = {};
-  (activeCoverageStaff || []).forEach(candidate => {
-    byName[candidate.name] = Object.assign({}, candidate, {
-      fieldTripEvents: (candidate.fieldTripEvents || []).slice(),
-      fieldTripOnly: false
-    });
-  });
-
-  (fieldTrips || []).forEach(trip => {
-    const participantSet = {};
-    (trip.staffNames || []).forEach(name => { participantSet[name] = true; });
-    const tripTimes = fieldTripTimes_(trip);
-    if (tripTimes.startMinutes == null || tripTimes.endMinutes == null) return;
-
-    const affectedNames = {};
-    normalized.forEach(row => {
-      if (participantSet[row.staffName]) return;
-      if (!fieldTripGradeMatches_(trip, row.grade)) return;
-      if (!isInstructionalGradeBlock_(row)) return;
-      if (!blockOverlapsFieldTrip_(row, trip)) return;
-      affectedNames[row.staffName] = true;
-    });
-
-    Object.keys(affectedNames).forEach(name => {
-      const configured = configuredByName[name];
-      if (configured && !configured.activeToday) return;
-
-      let candidate = byName[name];
-      if (!candidate) {
-        candidate = {
-          name: name,
-          role: 'Field Trip Release',
-          tier: 3,
-          canCoverAllDay: false,
-          baseActive: true,
-          activeToday: true,
-          availableDays: '*',
-          defaultStart: '',
-          defaultEnd: '',
-          selectedStart: '',
-          selectedEnd: '',
-          hasDateOverride: false,
-          availabilityNotes: '',
-          allowedGrades: '*',
-          allowedSubjects: '*',
-          allowedAssignmentTypes: '*',
-          maxBlocksPerDay: Infinity,
-          maxTeachersPerDay: Infinity,
-          canBeSplitAcrossTeachers: true,
-          notes: 'Temporary coverage availability created by a field trip.',
-          fieldTripEvents: [],
-          fieldTripOnly: true
-        };
-        byName[name] = candidate;
-      }
-
-      if (!candidate.fieldTripEvents) candidate.fieldTripEvents = [];
-      if (!candidate.fieldTripEvents.some(event => event.eventId === trip.eventId)) {
-        candidate.fieldTripEvents.push({
-          eventId: trip.eventId,
-          name: trip.name,
-          grades: (trip.grades || []).slice(),
-          startMinutes: tripTimes.startMinutes,
-          endMinutes: tripTimes.endMinutes
-        });
-      }
-    });
-  });
-
-  return Object.keys(byName).map(name => byName[name]);
 }
 
 function assignmentTypeIsBreak_(row) {
