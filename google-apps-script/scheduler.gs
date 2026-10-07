@@ -600,7 +600,7 @@ function saveFieldTripUnlocked_(payload) {
     Staff: staffNames.join(' | '),
     Notes: notes
   });
-  rebuildFieldTripCoverageCacheForTrip_(savedTrip);
+  rebuildFieldTripCoveragePoolForTrip_(savedTrip);
   return savedTrip;
 }
 
@@ -627,7 +627,7 @@ function deleteFieldTripUnlocked_(eventId) {
       sheet.deleteRow(r + 1);
       incrementCoverageMetric_('sheetWrites');
       invalidateCoverageSheetCache_('Field Trips');
-      removeFieldTripCoverageCacheForEvent_(id);
+      removeFieldTripCoveragePoolForEvent_(id);
       if (trip) invalidatePreviewForDateRange_(trip.startDate, trip.endDate);
       return { deleted: true, eventId: id };
     }
@@ -1880,11 +1880,13 @@ function buildManualCoverageCandidates_(date, day, config, fieldTrips, teacherSc
   const configuredCoverageStaff = getCoverageStaffForDate_(date, day, config);
   const activeCoverageStaff = configuredCoverageStaff.filter(row => row.name && row.activeToday);
 
-  const automaticPool = buildFieldTripCoverageCandidatesFromCache_(
+  const poolRows = fieldTrips.length ? fieldTripCoveragePoolRowsForDate_(date) : [];
+  const automaticPool = buildFieldTripCoverageCandidatesFromPool_(
     fieldTrips,
     date,
     activeCoverageStaff,
-    configuredCoverageStaff
+    configuredCoverageStaff,
+    poolRows
   );
 
   const configuredNames = {};
@@ -2372,7 +2374,8 @@ function scheduleFieldTripNeedsChronologically_(
   config,
   date,
   planRows,
-  summary
+  summary,
+  fieldTripPoolRows
 ) {
   const tripNeeds = [];
 
@@ -2398,8 +2401,13 @@ function scheduleFieldTripNeedsChronologically_(
   // First pass: use only people released by this field trip. This lets normal
   // Coverage Staff remain available for ordinary absences unless needed later.
   tripNeeds.forEach(item => {
-    const eventPool = coverageStaff.filter(candidate =>
-      candidateHasFieldTripEvent_(candidate, item.block.fieldTripEventId)
+    const eventPool = fieldTripPoolCandidateSubset_(
+      fieldTripPoolRows,
+      item.block.fieldTripEventId,
+      item.absentName,
+      item.block,
+      coverageStaff,
+      true
     );
     const best = pickBestBlockCandidate_(
       item.absentName,
@@ -2451,10 +2459,18 @@ function fillDeferredFieldTripNeeds_(
   const assignedAbsentNames = {};
 
   (deferred || []).forEach(item => {
-    const best = pickBestBlockCandidate_(
+    const pooledCandidates = fieldTripPoolCandidateSubset_(
+      fieldTripPoolRows,
+      item.block.fieldTripEventId,
       item.absentName,
       item.block,
       coverageStaff,
+      false
+    );
+    const best = pickBestBlockCandidate_(
+      item.absentName,
+      item.block,
+      pooledCandidates,
       teacherSchedule,
       day,
       state,
@@ -2518,11 +2534,13 @@ function generateCoveragePreview(payload) {
   const fieldTrips = getFieldTripsForDate_(date);
   const fieldTripAbsences = buildFieldTripParticipantAbsences_(fieldTrips, teacherSchedule, day);
   const effectiveAbsences = absences.concat(fieldTripAbsences);
-  const coverageStaff = buildFieldTripCoverageCandidatesFromCache_(
+  const fieldTripPoolRows = fieldTrips.length ? fieldTripCoveragePoolRowsForDate_(date) : [];
+  const coverageStaff = buildFieldTripCoverageCandidatesFromPool_(
     fieldTrips,
     date,
     activeCoverageStaff,
-    configuredCoverageStaff
+    configuredCoverageStaff,
+    fieldTripPoolRows
   );
 
   const needsByTeacher = buildCoverageNeedsByTeacher_(
@@ -2609,7 +2627,8 @@ function generateCoveragePreview(payload) {
     config,
     date,
     planRows,
-    summary
+    summary,
+    fieldTripPoolRows
   );
   summary.totalBlocks += tripPass.totalBlocks;
   if (Object.keys(tripPass.assignedAbsentNames).length) {
@@ -2776,7 +2795,8 @@ function generateCoveragePreview(payload) {
     config,
     date,
     planRows,
-    summary
+    summary,
+    fieldTripPoolRows
   );
   if (Object.keys(fallbackAssigned).length) {
     summary.splitAssignments += Object.keys(fallbackAssigned).length;
@@ -3184,7 +3204,7 @@ function pickBestBlockCandidate_(absentName, block, coverageStaff, teacherSchedu
         fieldTripReason: fieldTripReason,
         fieldTripBreakMove: availability.fieldTripBreakMove || null,
         fieldTripRunwayMinutes: runwayMinutes,
-        score: scoreInfo.score + fieldTripBoost + runwayBoost,
+        score: scoreInfo.score + fieldTripBoost + runwayBoost + Number(candidate.poolPriorityAdjustment || 0),
         reason:
           (fieldTripReason ? fieldTripReason + '; ' : '') +
           (runwayReason ? runwayReason + '; ' : '') +
@@ -3829,11 +3849,13 @@ function getFieldTripCoverageStaffForDate_(date, day) {
   const config = getConfigMap_();
   const configuredCoverageStaff = getCoverageStaffForDate_(date, day, config);
   const activeCoverageStaff = configuredCoverageStaff.filter(row => row.name && row.activeToday);
-  return buildFieldTripCoverageCandidatesFromCache_(
+  const poolRows = fieldTripCoveragePoolRowsForDate_(date);
+  return buildFieldTripCoverageCandidatesFromPool_(
     fieldTrips,
     date,
     activeCoverageStaff,
-    configuredCoverageStaff
+    configuredCoverageStaff,
+    poolRows
   )
     .filter(candidate => (candidate.fieldTripEvents || []).length)
     .map(candidate => ({
@@ -4381,6 +4403,6 @@ function backfillTeacherScheduleDerivedFields() {
   sheet.getRange(2, 1, out.length, headers.length).setValues(out);
   incrementCoverageMetric_('sheetWrites');
   invalidateCoverageSheetCache_('Teacher Schedule');
-  markFieldTripCoverageCacheDirty_();
+  markFieldTripCoveragePoolDirty_();
 }
 
