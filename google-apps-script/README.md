@@ -68,7 +68,7 @@ You do **not** need to manually edit `Coverage Staff` for normal use. Open the w
 1. In the Apps Script editor choose **Deploy → New deployment**.
 2. Choose **Web app**.
 3. Choose the execution identity and access level appropriate for your organization.
-4. Deploy and authorize the requested Google Sheets/Docs permissions.
+4. Deploy and authorize the requested Google Sheets/Docs/Drive permissions.
 5. Open the generated `/exec` URL.
 
 When updating an existing installation, keep the browser and server files in sync. The current manual-placement and field-trip workflow depends on the current versions of `code.gs`, `scheduler.gs`, `index.html`, and `field-trip-ui.gs` being deployed together. The web app now checks a server API version during startup and refuses to run a mixed deployment.
