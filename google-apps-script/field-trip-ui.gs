@@ -66,12 +66,13 @@ function getFieldTripUi_() {
         '<div class="m-hd"><div><h2 id="fieldTripModalTitle">Add Field Trip</h2><div class="m-sub">Choose the students and staff who will be away. The scheduler will cancel those grade-level classes and reuse released teachers for coverage.</div></div><button class="m-x" data-ft-close="fieldTripModal">×</button></div>'+
         '<div class="m-body">'+
           '<div class="fg"><label class="fl">Trip Name</label><input id="ftName" class="fi" placeholder="2nd Grade Field Trip"></div>'+
+          '<div class="fg"><label class="fl">Trip Destination</label><input id="ftDestination" class="fi" placeholder="Smithsonian Air and Space Museum"></div>'+
           '<div class="f-row"><div class="fg"><label class="fl">Start Date</label><input id="ftDate" type="date" class="fi"></div><div class="fg"><label class="fl">Departure</label><input id="ftStart" type="time" class="fi" value="09:00"></div></div>'+
           '<div class="f-row"><div class="fg"><label class="fl">End Date</label><input id="ftEndDate" type="date" class="fi"></div><div class="fg"><label class="fl">Return</label><input id="ftEnd" type="time" class="fi" value="14:00"></div></div>'+
           '<div class="hint" style="margin:-5px 0 12px">For a one-day trip, use the same start and end date. Overnight trips remain active across every day in between.</div>'+
           '<div class="fg"><label class="fl">Students on Trip</label><div id="ftGrades" class="ft-grade-grid"></div><div class="hint">Classes for these grades are treated as cancelled during the trip window.</div></div>'+
           '<div class="fg ft-staff-box"><label class="fl">Staff on Trip</label><input id="ftStaffSearch" class="fi" placeholder="Search staff…"><div id="ftStaffList" class="ft-staff-list"></div><div id="ftStaffHint" class="hint" style="margin-top:7px"></div></div>'+
-          '<div class="fg"><label class="fl">Notes <span style="font-weight:500;text-transform:none">(optional)</span></label><textarea id="ftNotes" class="fta" placeholder="Destination, grade-level details, or anything the office should know"></textarea></div>'+
+          '<div class="fg"><label class="fl">Notes <span style="font-weight:500;text-transform:none">(optional)</span></label><textarea id="ftNotes" class="fta" placeholder="Grade-level details, special instructions, or anything the office should know"></textarea></div>'+
         '</div>'+
         '<div class="m-ft"><button id="deleteFieldTripBtn" class="btn-del hidden">Delete Field Trip</button><div class="sp-r"></div><button class="btn-cancel" data-ft-close="fieldTripModal">Cancel</button><button id="saveFieldTripBtn" class="btn-save">Save Field Trip</button></div>'+
       '</div>'+
@@ -173,6 +174,7 @@ function getFieldTripUi_() {
 
     document.getElementById('fieldTripModalTitle').textContent=trip?'Edit Field Trip':'Add Field Trip';
     document.getElementById('ftName').value=trip?trip.name:'';
+    document.getElementById('ftDestination').value=trip?(trip.destination||''):'';
     var tripStartDate=trip?(trip.startDate||trip.date):(S.date||'');
     var tripEndDate=trip?(trip.endDate||trip.startDate||trip.date):tripStartDate;
     document.getElementById('ftDate').value=tripStartDate;
@@ -194,6 +196,7 @@ function getFieldTripUi_() {
     var payload={
       eventId:editingEventId,
       name:document.getElementById('ftName').value.trim(),
+      destination:document.getElementById('ftDestination').value.trim(),
       startDate:document.getElementById('ftDate').value,
       endDate:document.getElementById('ftEndDate').value,
       start:document.getElementById('ftStart').value,
