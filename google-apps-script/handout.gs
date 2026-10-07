@@ -26,7 +26,10 @@ function createCoverageHandoutDocWide_(rows, date, day) {
     throw new Error('No assigned coverage staff found to build handouts.');
   }
 
+  const folder = getCoverageHandoutFolder_();
   const doc = DocumentApp.create('Coverage Handouts - ' + date + (day ? ' - ' + day : ''));
+  DriveApp.getFileById(doc.getId()).moveTo(folder);
+
   const body = doc.getBody();
   formatWideHandoutPage_(body);
 
@@ -58,8 +61,56 @@ function createCoverageHandoutDocWide_(rows, date, day) {
   return {
     id: doc.getId(),
     url: doc.getUrl(),
-    name: doc.getName()
+    name: doc.getName(),
+    folderId: folder.getId(),
+    folderUrl: folder.getUrl(),
+    folderName: folder.getName()
   };
+}
+
+function getCoverageHandoutFolder_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('No active Coverage Scheduler workbook is available.');
+
+  const propertyKey = 'COVERAGE_HANDOUT_FOLDER_ID_' + ss.getId();
+  const properties = PropertiesService.getScriptProperties();
+  const savedFolderId = String(properties.getProperty(propertyKey) || '').trim();
+
+  if (savedFolderId) {
+    try {
+      const savedFolder = DriveApp.getFolderById(savedFolderId);
+      if (!savedFolder.isTrashed()) return savedFolder;
+    } catch (error) {
+      // The folder may have been deleted or access may have changed.
+    }
+    properties.deleteProperty(propertyKey);
+  }
+
+  const folderName = ss.getName() + ' - Handouts';
+  let parent = null;
+
+  try {
+    const spreadsheetFile = DriveApp.getFileById(ss.getId());
+    const parents = spreadsheetFile.getParents();
+    if (parents.hasNext()) parent = parents.next();
+  } catch (error) {
+    // Fall back to My Drive root if the spreadsheet parent cannot be resolved.
+  }
+
+  if (!parent) parent = DriveApp.getRootFolder();
+
+  const existingFolders = parent.getFoldersByName(folderName);
+  while (existingFolders.hasNext()) {
+    const existing = existingFolders.next();
+    if (!existing.isTrashed()) {
+      properties.setProperty(propertyKey, existing.getId());
+      return existing;
+    }
+  }
+
+  const folder = parent.createFolder(folderName);
+  properties.setProperty(propertyKey, folder.getId());
+  return folder;
 }
 
 function formatWideHandoutPage_(body) {
