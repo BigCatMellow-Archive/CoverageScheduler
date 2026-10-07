@@ -1876,11 +1876,11 @@ function makeManualScheduleCandidate_(name, role) {
   };
 }
 
-function buildManualCoverageCandidates_(date, day, config, fieldTrips, teacherSchedule) {
+function buildManualCoverageCandidates_(date, day, config, fieldTrips, teacherSchedule, fieldTripPoolRows) {
   const configuredCoverageStaff = getCoverageStaffForDate_(date, day, config);
   const activeCoverageStaff = configuredCoverageStaff.filter(row => row.name && row.activeToday);
 
-  const poolRows = fieldTrips.length ? fieldTripCoveragePoolRowsForDate_(date) : [];
+  const poolRows = fieldTrips.length ? (fieldTripPoolRows || fieldTripCoveragePoolRowsForDate_(date)) : [];
   const automaticPool = buildFieldTripCoverageCandidatesFromPool_(
     fieldTrips,
     date,
@@ -2007,8 +2007,9 @@ function buildCoverageLiveContext_(date, day) {
   );
   const absences = getDailyAbsencesForDate_(date, day);
   const fieldTrips = getFieldTripsForDate_(date);
+  const fieldTripPoolRows = fieldTrips.length ? fieldTripCoveragePoolRowsForDate_(date) : [];
   const effectiveAbsences = absences.concat(buildFieldTripParticipantAbsences_(fieldTrips, teacherSchedule, day));
-  const candidates = buildManualCoverageCandidates_(date, day, config, fieldTrips, teacherSchedule);
+  const candidates = buildManualCoverageCandidates_(date, day, config, fieldTrips, teacherSchedule, fieldTripPoolRows);
   const needsByTeacher = buildCoverageNeedsByTeacher_(effectiveAbsences, teacherSchedule, day, fieldTrips);
 
   const needByKey = {};
@@ -2028,6 +2029,7 @@ function buildCoverageLiveContext_(date, day) {
     teacherSchedule: teacherSchedule,
     absences: absences,
     fieldTrips: fieldTrips,
+    fieldTripPoolRows: fieldTripPoolRows,
     effectiveAbsences: effectiveAbsences,
     candidates: candidates,
     needsByTeacher: needsByTeacher,
@@ -2143,6 +2145,18 @@ function validateCoveragePlanForSave_(date, day, rows) {
       problems.push(label + ': cannot cover their own absence');
       return;
     }
+    if (block.fieldTripEventId) {
+      const allowed = fieldTripCoveragePoolEntriesForBlock_(
+        live.fieldTripPoolRows,
+        block.fieldTripEventId,
+        absentName,
+        block
+      ).some(entry => coveragePersonNameKey_(entry.Candidate) === coveragePersonNameKey_(name));
+      if (!allowed) {
+        problems.push(label + ': disabled or no longer listed in the Field Trip Coverage Pool');
+        return;
+      }
+    }
 
     const state = manualCoverageStateFromPlan_(rows, index, live.candidates, live.teacherSchedule, day, live.effectiveAbsences);
     if (candidateIsAbsentForBlock_(name, block, state)) {
@@ -2215,9 +2229,25 @@ function getManualCoverageChoices_(payload) {
   const currentName = String(row.Assigned_Coverage || '').trim();
   const choices = [];
   const absentDuringBlock = [];
+  const poolEntries = block.fieldTripEventId
+    ? fieldTripCoveragePoolEntriesForBlock_(
+        context.fieldTripPoolRows,
+        block.fieldTripEventId,
+        absentName,
+        block
+      )
+    : [];
+  const poolEntryByName = {};
+  poolEntries.forEach(entry => {
+    poolEntryByName[coveragePersonNameKey_(entry.Candidate)] = entry;
+  });
 
   context.candidates.forEach(candidate => {
     if (!candidate || !candidate.name || candidate.name === absentName) return;
+    const poolEntry = block.fieldTripEventId
+      ? poolEntryByName[coveragePersonNameKey_(candidate.name)]
+      : null;
+    if (block.fieldTripEventId && !poolEntry) return;
 
     if (candidateIsAbsentForBlock_(candidate.name, block, context.state)) {
       absentDuringBlock.push(candidate.name);
@@ -2246,9 +2276,9 @@ function getManualCoverageChoices_(payload) {
       block.fieldTripEventId &&
       candidateHasFieldTripEvent_(candidate, block.fieldTripEventId)
     );
-    const source = fieldTripPool
-      ? 'Field Trip Pool'
-      : (candidate.manualSource || 'Available Staff');
+    const source = poolEntry
+      ? String(poolEntry.Source || (fieldTripPool ? 'Field Trip Pool' : 'Coverage Staff'))
+      : (fieldTripPool ? 'Field Trip Pool' : (candidate.manualSource || 'Available Staff'));
 
     const scoreInfo = scoreCandidateForBlock_(candidate, absentName, block, context.state);
     const fieldTripBoost = Number(availability.fieldTripPriority || 0) * 250;
@@ -2264,7 +2294,7 @@ function getManualCoverageChoices_(payload) {
         (candidate.canCoverAllDay
           ? 'Available as Coverage Staff for the full block.'
           : 'Available during a cover-eligible schedule block.'),
-      score: scoreInfo.score + fieldTripBoost + runwayBoost
+      score: scoreInfo.score + fieldTripBoost + runwayBoost + Number(poolEntry && poolEntry.Priority_Adjustment || 0)
     });
   });
 
