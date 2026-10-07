@@ -3489,9 +3489,18 @@ function ensureSubstituteAvailabilitySheet_() {
 function setSheetRowObject_(sheet, rowNumber, headers, aliasMap, rowObject) {
   const width = Math.max(headers.length, sheet.getLastColumn(), 1);
   const actualHeaders = sheet.getRange(1, 1, 1, width).getValues()[0].map(h => String(h || '').trim());
-  const existing = rowNumber <= sheet.getLastRow()
-    ? sheet.getRange(rowNumber, 1, 1, width).getValues()[0]
-    : new Array(width).fill('');
+  let existing;
+  if (rowNumber <= sheet.getLastRow()) {
+    const existingRange = sheet.getRange(rowNumber, 1, 1, width);
+    existing = existingRange.getValues()[0];
+    const formulas = existingRange.getFormulas()[0];
+    // Preserve formulas in custom/unmanaged columns when the row is rewritten.
+    formulas.forEach((formula, index) => {
+      if (formula) existing[index] = formula;
+    });
+  } else {
+    existing = new Array(width).fill('');
+  }
 
   Object.keys(rowObject || {}).forEach(canonical => {
     const col = findColumnByAliases_(actualHeaders, aliasMap[canonical]);
