@@ -1802,8 +1802,15 @@ function manualCoverageScheduleContext_(candidate, block, teacherSchedule, day) 
 
   const releasedByTrip = !!(
     block.fieldTripEventId &&
-    candidateHasFieldTripEvent_(candidate, block.fieldTripEventId) &&
-    isInstructionalGradeBlock_(overlapping)
+    isInstructionalGradeBlock_(overlapping) &&
+    (candidate.fieldTripEvents || []).some(event =>
+      event.eventId === block.fieldTripEventId &&
+      (event.grades || []).some(grade =>
+        normalizeGradeKey_(grade) === normalizeGradeKey_(overlapping.grade)
+      ) &&
+      event.startMinutes <= Math.max(overlapping.startMinutes, block.startMinutes) &&
+      event.endMinutes >= Math.min(overlapping.endMinutes, block.endMinutes)
+    )
   );
   if (releasedByTrip) {
     return activity + ' ' + time + room + ' · released by field trip';
