@@ -18,7 +18,7 @@ The main bootstrap and Generate paths also prime the sheets they need as a reque
 
 Important properties:
 
-- the cache is an optimization only;
+- cache keys are scoped to the connected spreadsheet ID, so rebinding the script cannot reuse another workbook's cached schedule;\n- the cache is an optimization only;
 - Google Sheets remains authoritative;
 - a cache miss always falls back to the sheet;
 - app writes invalidate the matching cache entry;
