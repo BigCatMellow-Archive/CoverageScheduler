@@ -1967,6 +1967,52 @@ function validateCoveragePlanForSave_(date, day, rows) {
   }
 }
 
+// A person's day, simplified for the inline schedule preview in the manual
+// reassignment modal: one entry per Teacher Schedule row, in display time.
+// "cancelled" marks a row a field trip has cancelled today (students away) —
+// shown differently from an ordinary break, since it explains why someone who
+// normally teaches then is free today specifically.
+//
+// breakReservations (state.breakReservationsByCandidate[staffName], optional)
+// lets this also reflect a MOVED break: without it, a break that's actually
+// being used to cover something else still shows as plain "Break" (looking
+// free when it isn't), and the cancelled slot it moved to shows as generic
+// "freed by a trip" with no indication it's now this person's real break.
+function describeStaffDayForDisplay_(teacherSchedule, day, staffName, fieldTrips, breakReservations) {
+  const entries = normalizedScheduleRowsFor_(teacherSchedule, staffName, day)
+    .filter(row => row.startMinutes != null && row.endMinutes != null)
+    .slice()
+    .sort((a, b) => a.startMinutes - b.startMinutes)
+    .map(row => ({
+      start: minutesToDisplay_(row.startMinutes),
+      end: minutesToDisplay_(row.endMinutes),
+      startMinutes: row.startMinutes,
+      endMinutes: row.endMinutes,
+      label: row.className || row.subject || row.assignmentType || 'Class',
+      type: row.assignmentType || 'Class',
+      cancelled: blockIsCancelledByFieldTrip_(row, fieldTrips)
+    }));
+
+  (breakReservations || []).forEach(reservation => {
+    entries.forEach(entry => {
+      if (timesOverlap_(entry.startMinutes, entry.endMinutes, reservation.originalBreakStartMinutes, reservation.originalBreakEndMinutes)) {
+        entry.label = entry.label + ' — moved to ' + minutesToDisplay_(reservation.startMinutes);
+        entry.breakMovedAway = true;
+      }
+      if (timesOverlap_(entry.startMinutes, entry.endMinutes, reservation.startMinutes, reservation.endMinutes)) {
+        entry.label = 'Break (moved from ' + minutesToDisplay_(reservation.originalBreakStartMinutes) + ')';
+        entry.breakMovedHere = true;
+      }
+    });
+  });
+
+  return entries.map(entry => {
+    delete entry.startMinutes;
+    delete entry.endMinutes;
+    return entry;
+  });
+}
+
 function getManualCoverageChoices_(payload) {
   const context = manualCoverageContext_(payload);
   const row = context.row;
@@ -2039,6 +2085,48 @@ function getManualCoverageChoices_(payload) {
       a.name.localeCompare(b.name);
   });
 
+  // One schedule per name that could appear in the dropdown, including the
+  // current assignee even if they're shown disabled as "currently
+  // unavailable" — seeing their day often explains why.
+  const namesToDescribe = new Set(choices.map(choice => choice.name));
+  if (currentName) namesToDescribe.add(currentName);
+  const schedules = {};
+  namesToDescribe.forEach(name => {
+    let reservations = candidateBreakReservations_(name, context.state);
+    // The state replay above deliberately excludes this block's own current
+    // assignment (so every other candidate can be evaluated as if it were
+    // open) — which means if this person is the current assignee, their own
+    // break move caused by filling this exact block is missing from
+    // context.state. Compute it fresh, just for display.
+    if (name === currentName) {
+      const candidateForDisplay = context.candidates.find(c => c.name === name) || makeManualScheduleCandidate_(name, 'Staff');
+      const freshAvailability = candidateAvailabilityForBlock_(
+        candidateForDisplay,
+        block,
+        context.teacherSchedule,
+        context.day,
+        context.state
+      );
+      if (freshAvailability && freshAvailability.fieldTripBreakMove) {
+        const move = freshAvailability.fieldTripBreakMove;
+        reservations = reservations.concat([{
+          eventId: move.eventId,
+          startMinutes: move.replacementStartMinutes,
+          endMinutes: move.replacementEndMinutes,
+          originalBreakStartMinutes: move.originalBreakStartMinutes,
+          originalBreakEndMinutes: move.originalBreakEndMinutes
+        }]);
+      }
+    }
+    schedules[name] = describeStaffDayForDisplay_(
+      context.teacherSchedule,
+      context.day,
+      name,
+      context.fieldTrips,
+      reservations
+    );
+  });
+
   return {
     date: context.date,
     day: context.day,
@@ -2046,6 +2134,7 @@ function getManualCoverageChoices_(payload) {
     currentName: currentName,
     currentEligible: !currentName || choices.some(choice => choice.name === currentName),
     choices: choices,
+    schedules: schedules,
     excludedAbsentNames: Array.from(new Set(absentDuringBlock)).sort()
   };
 }
