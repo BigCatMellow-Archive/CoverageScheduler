@@ -71,6 +71,19 @@ const SHEET_SCHEMAS = {
       'Notes'
     ]
   },
+  'Field Trip Coverage Cache': {
+    headers: [
+      'Event_ID',
+      'Date',
+      'Day',
+      'Staff_Name',
+      'Event_Name',
+      'Grades',
+      'Start',
+      'End',
+      'Built_At'
+    ]
+  },
   'Coverage Output': {
     headers: [
       'Date',
@@ -141,7 +154,7 @@ const DEFAULT_CONFIG = [
 
 function setupCoverageWorkbook() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const desiredOrder = ['Teacher Schedule', 'Coverage Staff', 'Substitute Availability', 'Daily Absences', 'Field Trips', 'Coverage Output', 'Lists', 'Config', '_Preview'];
+  const desiredOrder = ['Teacher Schedule', 'Coverage Staff', 'Substitute Availability', 'Daily Absences', 'Field Trips', 'Field Trip Coverage Cache', 'Coverage Output', 'Lists', 'Config', '_Preview'];
 
   desiredOrder.forEach((name, index) => {
     const schema = SHEET_SCHEMAS[name];
@@ -158,6 +171,9 @@ function setupCoverageWorkbook() {
   if (typeof invalidateCoverageSheetCache_ === 'function') {
     invalidateCoverageSheetCache_('Teacher Schedule');
     invalidateCoverageSheetCache_('Config');
+  }
+  if (typeof markFieldTripCoverageCacheDirty_ === 'function') {
+    markFieldTripCoverageCacheDirty_();
   }
   ss.toast('Coverage Scheduler workbook is ready.', APP_TITLE, 5);
 }
@@ -202,7 +218,7 @@ function formatSheet_(sheet) {
   for (let col = 1; col <= lastCol; col++) {
     sheet.setColumnWidth(col, 145);
   }
-  if (sheet.getName() === '_Preview' || sheet.getName() === 'Lists' || sheet.getName() === 'Config') {
+  if (sheet.getName() === '_Preview' || sheet.getName() === 'Lists' || sheet.getName() === 'Config' || sheet.getName() === 'Field Trip Coverage Cache') {
     return;
   }
   sheet.setRowHeights(1, Math.max(sheet.getMaxRows(), 2), 24);
@@ -210,7 +226,7 @@ function formatSheet_(sheet) {
 
 function hideHelperSheets_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  ['Lists', '_Preview'].forEach(name => {
+  ['Lists', '_Preview', 'Field Trip Coverage Cache'].forEach(name => {
     const sheet = ss.getSheetByName(name);
     if (sheet && !sheet.isSheetHidden()) sheet.hideSheet();
   });

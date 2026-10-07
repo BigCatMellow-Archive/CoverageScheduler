@@ -41,6 +41,7 @@ function setupCoverageWorkbookFromTeacherSchedule() {
     'Coverage Staff',
     'Substitute Availability',
     'Daily Absences',
+    'Field Trip Coverage Cache',
     'Coverage Output',
     'Lists',
     'Config',
@@ -58,6 +59,9 @@ function setupCoverageWorkbookFromTeacherSchedule() {
   seedConfig_();
   applyDataValidation_();
   hideHelperSheets_();
+  if (typeof markFieldTripCoverageCacheDirty_ === 'function') {
+    markFieldTripCoverageCacheDirty_();
+  }
 
   if (typeof ensureStaffListForWeb_ === 'function') {
     ensureStaffListForWeb_();

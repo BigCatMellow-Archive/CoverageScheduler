@@ -1,9 +1,9 @@
-const COVERAGE_WEB_API_VERSION = 7;
+const COVERAGE_WEB_API_VERSION = 8;
 
 const APP_TITLE = 'Coverage Scheduler';
 const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
 const COVERAGE_SCHEMA_VERSION_PROPERTY = 'COVERAGE_SCHEMA_VERSION';
-const COVERAGE_SCHEMA_VERSION = '2026-10-07-perf-1';
+const COVERAGE_SCHEMA_VERSION = '2026-10-07-field-trip-cache-1';
 let COVERAGE_WEB_READY_THIS_REQUEST_ = false;
 
 function onOpen() {
@@ -25,7 +25,12 @@ function onOpen() {
 function onEdit(e) {
   try {
     const sheet = e && e.range ? e.range.getSheet() : null;
-    if (sheet) invalidateCoverageSheetCache_(sheet.getName());
+    if (sheet) {
+      invalidateCoverageSheetCache_(sheet.getName());
+      if (['Teacher Schedule', 'Field Trips', 'Config'].indexOf(sheet.getName()) !== -1) {
+        markFieldTripCoverageCacheDirty_();
+      }
+    }
   } catch (error) {
     // Cache invalidation is best-effort; an edit must never be blocked by it.
   }
@@ -442,6 +447,7 @@ function ensureCoverageWorkbookReadyForWeb_() {
     const missing = requiredSheets.filter(name => !ss.getSheetByName(name));
     if (missing.length) setupCoverageWorkbookFromTeacherSchedule();
     ensureStaffListSheet_();
+    markFieldTripCoverageCacheDirty_();
     markCoverageSchemaReady_();
   } else if (!ss.getSheetByName('Teacher Schedule')) {
     // Fail clearly if the one authoritative source tab was removed after setup.
@@ -518,6 +524,17 @@ function webGetBootstrap(payload) {
       fieldTripContinuityScheduling: true
     };
     return safe;
+  });
+}
+
+function webGetStaffSchedule(payload) {
+  return runCoverageWebRequest_('webGetStaffSchedule', () => {
+    payload = payload || {};
+    return makeWebSafe_(getWebStaffSchedule_(
+      payload.staffName,
+      payload.date,
+      payload.day
+    ));
   });
 }
 
@@ -774,7 +791,6 @@ function getCoverageBootstrap_(payload) {
   const dayCode = payload.day || guessDayCodeFromDate_(today);
 
   primeCoverageRequestSnapshot_([
-    'Teacher Schedule',
     getCoverageStaffSheetName_(),
     'Substitute Availability',
     'Daily Absences',
@@ -787,9 +803,9 @@ function getCoverageBootstrap_(payload) {
   return {
     today: today,
     day: dayCode,
-    allStaff: typeof getWebStaffRoster_ === 'function'
-      ? getWebStaffRoster_(dayCode)
-      : getAllSchedulableStaff_(dayCode, today),
+    allStaff: typeof getWebStaffRosterSummary_ === 'function'
+      ? getWebStaffRosterSummary_()
+      : [],
     allCoverageStaff: getAllCoverageStaff_(today, dayCode),
     fieldTripCoverageStaff: getFieldTripCoverageStaffForDate_(today, dayCode),
     currentAbsences: getDailyAbsencesForDate_(today, dayCode),

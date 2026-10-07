@@ -338,12 +338,13 @@ The web app is the normal operating interface, but all live data is stored in th
 | `Substitute Availability` | Date-specific availability overrides | Web app / scheduler workflow |
 | `Daily Absences` | Ordinary absences for specific dates | Web app |
 | `Field Trips` | One editable record per field trip: event ID, start/end dates and times, grades, staff, notes | Web app / Calendar |
+| `Field Trip Coverage Cache` | Hidden materialized helper rows listing staff released by each trip/date | Scheduler |
 | `Coverage Output` | Final saved coverage assignments, including the linked field-trip Event ID when applicable | Web app |
 | `Config` | Scheduler behavior settings | Advanced/admin use |
 | `Lists` | Validation/helper values | Setup routine |
 | `_Preview` | Temporary generated preview data | Scheduler |
 
-`Lists` and `_Preview` are helper sheets and are normally hidden.
+`Lists`, `_Preview`, and `Field Trip Coverage Cache` are helper sheets and are normally hidden.
 
 ### Teacher Schedule
 
@@ -535,7 +536,9 @@ Most day-to-day users should not need to edit `Config`.
 
 ## Performance
 
-The current Apps Script implementation keeps Google Sheets as the source of truth but avoids repeatedly reading the same tabs during one web action. It uses request-local sheet snapshots, short Google-managed caching for `Config`, one-row batched writes, and one-read/one-write handling for multi-day absences. `Teacher Schedule` is cached only for the current request so coverage dropdowns and eligibility checks always use the exact live Sheet values.
+The current Apps Script implementation keeps Google Sheets as the source of truth but avoids repeatedly reading the same tabs during one web action. It uses request-local sheet snapshots, short Google-managed caching for `Config`, one-row batched writes, one-read/one-write handling for multi-day absences, and a hidden materialized `Field Trip Coverage Cache`. Saving/editing a field trip precomputes which staying staff are released on each trip date; Generate and date loading reuse those rows instead of rediscovering the field-trip pool from the full Teacher Schedule. `Teacher Schedule` remains live for actual conflict/coverage validation.
+
+The main web bootstrap is also lightweight: it loads the Staff List without serializing every teacher block. A selected teacher's detailed schedule is fetched only when the user opens that person's schedule controls, then cached in the browser for that date.
 
 Every web endpoint emits a timing/counter summary to Apps Script execution logs without logging staff names, absence details, or schedule contents. See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for the cache/invalidation model and what to measure after deployment.
 

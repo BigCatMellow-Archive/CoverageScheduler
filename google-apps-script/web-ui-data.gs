@@ -23,6 +23,85 @@ function ensureStaffListSheet_() {
   return sheet;
 }
 
+function getWebStaffRosterSummary_() {
+  const staffSheet = ensureStaffListSheet_();
+  const values = staffSheet.getDataRange().getValues();
+  const headers = values[0].map(value => String(value || '').trim());
+  const teacherCol = findRosterColumn_(headers, ['Teacher', 'Staff', 'Staff Name', 'Name']);
+  if (teacherCol === -1) {
+    throw new Error('Staff List needs a column named Teacher.');
+  }
+
+  const seen = {};
+  return values.slice(1)
+    .map(row => String(row[teacherCol] || '').trim())
+    .filter(name => {
+      const key = rosterNameKey_(name);
+      if (!name || seen[key]) return false;
+      seen[key] = true;
+      return true;
+    })
+    .sort((a, b) => a.localeCompare(b))
+    .map(name => ({
+      name: name,
+      displayName: name,
+      scheduleName: name,
+      role: 'Teacher',
+      subject: '',
+      blocks: [],
+      scheduleMatched: null,
+      scheduleLoaded: false
+    }));
+}
+
+function getWebStaffSchedule_(staffName, date, dayCode) {
+  const requestedName = String(staffName || '').trim();
+  if (!requestedName) throw new Error('Choose a staff member.');
+
+  const targetKey = rosterNameKey_(requestedName);
+  const config = getConfigMap_();
+  const dateKey = normalizeDateKey_(date);
+  const day = String(dayCode || guessDayCodeFromDate_(dateKey) || '').trim();
+
+  const rows = filterTeacherScheduleForDate_(
+    readSheetObjects_('Teacher Schedule'),
+    dateKey,
+    config
+  )
+    .map(row => normalizeTeacherScheduleRow_(row))
+    .filter(row =>
+      (!day || row.day === day) &&
+      rosterNameKey_(row.staffName) === targetKey
+    );
+
+  const blocks = rows
+    .filter(row => row.startMinutes != null && row.endMinutes != null)
+    .map(row => ({
+      start: minutesToDisplay_(row.startMinutes),
+      end: minutesToDisplay_(row.endMinutes),
+      className: row.className,
+      grade: row.grade,
+      subject: row.subject,
+      assignmentType: row.assignmentType,
+      room: row.room,
+      needsCoverageIfAbsent: row.needsCoverageIfAbsent,
+      coverEligibleThisBlock: row.coverEligibleThisBlock
+    }))
+    .sort((a, b) => displayTimeToMinutes_(a.start) - displayTimeToMinutes_(b.start));
+
+  const first = rows[0] || null;
+  return {
+    name: requestedName,
+    displayName: requestedName,
+    scheduleName: first ? first.staffName : requestedName,
+    role: first ? (first.role || 'Teacher') : 'Teacher',
+    subject: summarizeRosterSubjects_(blocks),
+    blocks: blocks,
+    scheduleMatched: !!first,
+    scheduleLoaded: true
+  };
+}
+
 function getWebStaffRoster_(dayCode) {
   const staffSheet = ensureStaffListSheet_();
   const values = staffSheet.getDataRange().getValues();
