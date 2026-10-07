@@ -179,6 +179,7 @@ function setupCoverageWorkbook() {
     const sheet = ensureSheet_(ss, name, index + 1);
     ensureHeaderRow_(sheet, schema.headers);
     formatSheet_(sheet);
+    if (name === 'Field Trip Coverage Pool') formatFieldTripCoveragePoolSheet_(sheet);
   });
 
   seedLists_();
@@ -240,6 +241,29 @@ function formatSheet_(sheet) {
     return;
   }
   sheet.setRowHeights(1, Math.max(sheet.getMaxRows(), 2), 24);
+}
+
+function formatFieldTripCoveragePoolSheet_(sheet) {
+  if (!sheet) return;
+  const headers = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0]
+    .map(value => String(value || '').trim());
+  const enabledCol = headers.indexOf('Enabled') + 1;
+  const priorityCol = headers.indexOf('Priority_Adjustment') + 1;
+
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(Math.min(4, sheet.getLastColumn()));
+  if (enabledCol) {
+    sheet.getRange(1, enabledCol).setBackground('#dcfce7').setNote('Front-office control: set Yes/No to include or exclude this candidate for this exact field-trip block.');
+    sheet.setColumnWidth(enabledCol, 95);
+  }
+  if (priorityCol) {
+    sheet.getRange(1, priorityCol).setBackground('#fef3c7').setNote('Front-office control: positive numbers raise this candidate in the ranking; negative numbers lower them. Hard eligibility rules still apply.');
+    sheet.setColumnWidth(priorityCol, 135);
+  }
+  ['Event_Name','Absent_Staff','Class','Candidate','Reason'].forEach(header => {
+    const col = headers.indexOf(header) + 1;
+    if (col) sheet.setColumnWidth(col, header === 'Reason' ? 260 : 170);
+  });
 }
 
 function hideHelperSheets_() {
