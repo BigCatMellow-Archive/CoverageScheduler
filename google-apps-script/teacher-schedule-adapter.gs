@@ -59,6 +59,7 @@ function setupCoverageWorkbookFromTeacherSchedule() {
     if (!sheet) sheet = ss.insertSheet(name);
     ensureHeaderRow_(sheet, SHEET_SCHEMAS[name].headers);
     formatSheet_(sheet);
+    if (name === 'Field Trip Coverage Pool') formatFieldTripCoveragePoolSheet_(sheet);
   });
 
   seedLists_();
