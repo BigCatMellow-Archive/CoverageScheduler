@@ -155,6 +155,10 @@ function setupCoverageWorkbook() {
   applyDataValidation_();
   hideHelperSheets_();
 
+  if (typeof invalidateCoverageSheetCache_ === 'function') {
+    invalidateCoverageSheetCache_('Teacher Schedule');
+    invalidateCoverageSheetCache_('Config');
+  }
   ss.toast('Coverage Scheduler workbook is ready.', APP_TITLE, 5);
 }
 
@@ -251,6 +255,7 @@ function seedConfig_() {
     if (String(cell.getValue() || '') !== known[2]) cell.setValue(known[2]);
   });
   COVERAGE_CONFIG_CACHE_ = null;
+  if (typeof invalidateCoverageSheetCache_ === 'function') invalidateCoverageSheetCache_('Config');
 }
 
 function applyDataValidation_() {
@@ -326,4 +331,5 @@ function clearSheetDataKeepingHeader_(sheetName) {
   if (lastRow > 1 && lastCol > 0) {
     sheet.getRange(2, 1, lastRow - 1, lastCol).clearContent();
   }
+  if (typeof invalidateCoverageSheetCache_ === 'function') invalidateCoverageSheetCache_(sheetName);
 }
