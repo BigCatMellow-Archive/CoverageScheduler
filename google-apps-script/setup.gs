@@ -71,16 +71,28 @@ const SHEET_SCHEMAS = {
       'Notes'
     ]
   },
-  'Field Trip Coverage Cache': {
+  'Field Trip Coverage Pool': {
     headers: [
       'Event_ID',
+      'Event_Name',
       'Date',
       'Day',
-      'Staff_Name',
-      'Event_Name',
-      'Grades',
+      'Absent_Staff',
       'Start',
       'End',
+      'Class',
+      'Grade',
+      'Subject',
+      'Assignment_Type',
+      'Room',
+      'Candidate',
+      'Candidate_Role',
+      'Candidate_Tier',
+      'Source',
+      'Baseline_Score',
+      'Reason',
+      'Enabled',
+      'Priority_Adjustment',
       'Built_At'
     ]
   },
@@ -154,7 +166,13 @@ const DEFAULT_CONFIG = [
 
 function setupCoverageWorkbook() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const desiredOrder = ['Teacher Schedule', 'Coverage Staff', 'Substitute Availability', 'Daily Absences', 'Field Trips', 'Field Trip Coverage Cache', 'Coverage Output', 'Lists', 'Config', '_Preview'];
+  const legacyPool = ss.getSheetByName('Field Trip Coverage Cache');
+  if (legacyPool && !ss.getSheetByName('Field Trip Coverage Pool')) {
+    legacyPool.setName('Field Trip Coverage Pool');
+    legacyPool.clearContents();
+  }
+
+  const desiredOrder = ['Teacher Schedule', 'Coverage Staff', 'Substitute Availability', 'Daily Absences', 'Field Trips', 'Field Trip Coverage Pool', 'Coverage Output', 'Lists', 'Config', '_Preview'];
 
   desiredOrder.forEach((name, index) => {
     const schema = SHEET_SCHEMAS[name];
@@ -172,8 +190,8 @@ function setupCoverageWorkbook() {
     invalidateCoverageSheetCache_('Teacher Schedule');
     invalidateCoverageSheetCache_('Config');
   }
-  if (typeof markFieldTripCoverageCacheDirty_ === 'function') {
-    markFieldTripCoverageCacheDirty_();
+  if (typeof markFieldTripCoveragePoolDirty_ === 'function') {
+    markFieldTripCoveragePoolDirty_();
   }
   ss.toast('Coverage Scheduler workbook is ready.', APP_TITLE, 5);
 }
@@ -218,7 +236,7 @@ function formatSheet_(sheet) {
   for (let col = 1; col <= lastCol; col++) {
     sheet.setColumnWidth(col, 145);
   }
-  if (sheet.getName() === '_Preview' || sheet.getName() === 'Lists' || sheet.getName() === 'Config' || sheet.getName() === 'Field Trip Coverage Cache') {
+  if (sheet.getName() === '_Preview' || sheet.getName() === 'Lists' || sheet.getName() === 'Config') {
     return;
   }
   sheet.setRowHeights(1, Math.max(sheet.getMaxRows(), 2), 24);
@@ -226,7 +244,7 @@ function formatSheet_(sheet) {
 
 function hideHelperSheets_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  ['Lists', '_Preview', 'Field Trip Coverage Cache'].forEach(name => {
+  ['Lists', '_Preview'].forEach(name => {
     const sheet = ss.getSheetByName(name);
     if (sheet && !sheet.isSheetHidden()) sheet.hideSheet();
   });
