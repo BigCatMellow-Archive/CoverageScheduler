@@ -93,7 +93,7 @@ For ordinary absence rows, handouts keep the generated landscape format. Field-t
 
 On the first handout creation for a workbook, the app creates (or reuses) a sibling Drive folder named `<Workbook Name> - Handouts`. Its folder ID is remembered for that workbook, and every later handout is moved into that same folder. The success message includes links to both the new handout and the folder, so the folder can be shared once instead of sharing each document individually.
 
-`handout.gs` creates one landscape page per coverage person with a full-width assignment table. The time column is intentionally wide enough for normal time ranges to stay on one line, while compact cell padding keeps rows short. The table uses the full printable width of the page with larger Subject and Absent Teacher columns for easier scanning.
+For ordinary absence coverage, `handout.gs` creates one landscape page per coverage person with a full-width assignment table. The time column is intentionally wide enough for normal time ranges to stay on one line, while compact cell padding keeps rows short. The table uses the full printable width of the page with larger Subject and Absent Teacher columns for easier scanning.
 
 ## Workbook binding
 
