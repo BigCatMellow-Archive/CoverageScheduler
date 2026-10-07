@@ -37,6 +37,12 @@ function setupCoverageWorkbookFromTeacherSchedule() {
 
   const inspection = validateTeacherScheduleSource_();
 
+  const legacyPool = ss.getSheetByName('Field Trip Coverage Cache');
+  if (legacyPool && !ss.getSheetByName('Field Trip Coverage Pool')) {
+    legacyPool.setName('Field Trip Coverage Pool');
+    legacyPool.clearContents();
+  }
+
   const managedSheets = [
     'Coverage Staff',
     'Substitute Availability',
