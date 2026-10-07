@@ -533,6 +533,14 @@ The `google-apps-script/` folder is the authoritative copy-ready implementation 
 
 Most day-to-day users should not need to edit `Config`.
 
+## Performance
+
+The current Apps Script implementation keeps Google Sheets as the source of truth but avoids repeatedly reading the same tabs during one web action. It uses request-local sheet snapshots, short Google-managed caching for `Teacher Schedule` and `Config`, one-row batched writes, and one-read/one-write handling for multi-day absences.
+
+Every web endpoint emits a timing/counter summary to Apps Script execution logs without logging staff names, absence details, or schedule contents. See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for the cache/invalidation model and what to measure after deployment.
+
+No external database, third-party cache, new API dependency, or additional credential is required for these optimizations.
+
 ## Privacy and repository safety
 
 Do **not** commit live school data to this repository.
