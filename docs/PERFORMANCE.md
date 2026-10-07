@@ -47,6 +47,12 @@ The visible sheet `Field Trip Coverage Pool` contains one row per **field-trip c
 
 The pool is a rebuildable planning index, not a replacement source of truth. Rebuilds preserve the operator-entered `Enabled` and `Priority_Adjustment` values for matching block/candidate rows.
 
+### Fast date navigation
+
+Changing the selected date does not read or rebuild the `Field Trip Coverage Pool`. Date bootstrap loads only the data needed to display that day: Coverage Staff/date overrides, absences, field trips, saved preview, and Config. The stable Staff List roster is loaded once in the browser and reused across date changes.
+
+Field-trip pool materialization is deferred until Generate or manual field-trip reassignment actually needs it.
+
 ### Lazy Teacher Schedule delivery
 
 The initial web payload now contains the Staff List roster without every teacher's block-by-block schedule. When a user selects a teacher in the absence editor or a person in the manual coverage picker, the browser requests only that person's schedule for the selected date and keeps it locally for the rest of that date.
