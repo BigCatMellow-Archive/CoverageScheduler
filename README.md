@@ -338,13 +338,13 @@ The web app is the normal operating interface, but all live data is stored in th
 | `Substitute Availability` | Date-specific availability overrides | Web app / scheduler workflow |
 | `Daily Absences` | Ordinary absences for specific dates | Web app |
 | `Field Trips` | One editable record per field trip: event ID, start/end dates and times, grades, staff, notes | Web app / Calendar |
-| `Field Trip Coverage Pool` | Hidden materialized helper rows listing staff released by each trip/date | Scheduler |
+| `Field Trip Coverage Pool` | Visible materialized candidate matrix for field-trip coverage blocks; operators may adjust `Enabled` and `Priority_Adjustment` | Scheduler / front office |
 | `Coverage Output` | Final saved coverage assignments, including the linked field-trip Event ID when applicable | Web app |
 | `Config` | Scheduler behavior settings | Advanced/admin use |
 | `Lists` | Validation/helper values | Setup routine |
 | `_Preview` | Temporary generated preview data | Scheduler |
 
-`Lists`, `_Preview`, and `Field Trip Coverage Pool` are helper sheets and are normally hidden.
+`Lists` and `_Preview` are helper sheets and are normally hidden. `Field Trip Coverage Pool` stays visible so the front office can inspect and adjust the precomputed candidate pool.
 
 ### Teacher Schedule
 
@@ -536,7 +536,7 @@ Most day-to-day users should not need to edit `Config`.
 
 ## Performance
 
-The current Apps Script implementation keeps Google Sheets as the source of truth but avoids repeatedly reading the same tabs during one web action. It uses request-local sheet snapshots, short Google-managed caching for `Config`, one-row batched writes, one-read/one-write handling for multi-day absences, and a hidden materialized `Field Trip Coverage Pool`. Saving/editing a field trip precomputes which staying staff are released on each trip date; Generate and date loading reuse those rows instead of rediscovering the field-trip pool from the full Teacher Schedule. `Teacher Schedule` remains live for actual conflict/coverage validation.
+The current Apps Script implementation keeps Google Sheets as the source of truth but avoids rebuilding field-trip candidate eligibility on every Generate. The visible `Field Trip Coverage Pool` materializes one row per eligible candidate per field-trip coverage block, including source, baseline score, and reason. Saving/editing a trip rebuilds its rows; Generate reads those rows first and then applies only live safety checks such as absences, current assignments, schedule conflicts, and daily limits. Operators can set `Enabled` to No or use `Priority_Adjustment` to steer ranking without bypassing hard constraints.
 
 The main web bootstrap is also lightweight: it loads the Staff List without serializing every teacher block. A selected teacher's detailed schedule is fetched only when the user opens that person's schedule controls, then cached in the browser for that date.
 
