@@ -135,7 +135,7 @@
 <div id="blockModal" class="overlay hidden"><div class="modal modal-sm"><div class="m-hd"><h2>Reassign Block</h2><button class="m-x" data-close="blockModal">×</button></div><div class="m-body"><div id="blockInfo" class="block-info"></div><div class="fg"><label class="fl">Assign Coverage To</label><select id="blockCoverage" class="fs"></select><div id="blockCoverageHint" class="hint">Only staff who are actually available for this exact block will appear.</div></div></div><div class="m-ft"><div class="sp-r"></div><button class="btn-cancel" data-close="blockModal">Cancel</button><button id="saveBlockBtn" class="btn-save">Save Assignment</button></div></div></div>
 
 <script>
-const REQUIRED_WEB_API_VERSION=5;
+const REQUIRED_WEB_API_VERSION=6;
 const S={date:'',day:'',allStaff:[],coverage:[],fieldTripCoverage:[],absences:[],fieldTrips:[],plan:[],view:'timeline',generating:false,editingAbsence:null,editingAbsenceIndex:null,editingCoverage:null,editingBlock:null,pendingDelete:null};
 const $=id=>document.getElementById(id);
 const DAY_NAMES={M:'Monday',T:'Tuesday',W:'Wednesday',R:'Thursday',F:'Friday'};
@@ -404,14 +404,14 @@ async function openBlock(index){
 
     const choices=(result&&result.choices)||[];
     let html='<option value="">— Leave unfilled —</option>';
-    const groups=['Field Trip Pool','Coverage Staff','Available Staff'];
+    const groups=['Field Trip Pool','Coverage Staff','Available Staff','Subs'];
 
     groups.forEach(group=>{
       const rows=choices.filter(c=>c.source===group);
       if(!rows.length)return;
       html+='<optgroup label="'+esc(group)+'">';
       rows.forEach(choice=>{
-        const detail=choice.source==='Coverage Staff'&&choice.tier?' · Tier '+choice.tier:'';
+        const detail=(choice.source==='Coverage Staff'||choice.source==='Subs')&&choice.tier?' · Tier '+choice.tier:'';
         html+='<option value="'+esc(choice.name)+'">'+esc(choice.name+detail)+'</option>';
       });
       html+='</optgroup>';

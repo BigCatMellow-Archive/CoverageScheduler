@@ -1361,9 +1361,10 @@ function buildManualCoverageCandidates_(date, day, config, fieldTrips, teacherSc
   const byName = {};
   automaticPool.forEach(candidate => {
     const copy = Object.assign({}, candidate);
+    const role = String(copy.role || '').trim().toLowerCase();
     copy.manualSource = (copy.fieldTripEvents || []).length
       ? 'Field Trip Pool'
-      : 'Coverage Staff';
+      : (role === 'substitute' ? 'Subs' : 'Coverage Staff');
     byName[copy.name] = copy;
   });
 
@@ -1379,7 +1380,11 @@ function buildManualCoverageCandidates_(date, day, config, fieldTrips, teacherSc
       if (configuredNames[row.staffName] && !configuredNames[row.staffName].activeToday) return;
 
       const candidate = makeManualScheduleCandidate_(row.staffName, row.role || 'Staff');
-      if (configuredNames[row.staffName]) candidate.manualSource = 'Coverage Staff';
+      if (configuredNames[row.staffName]) {
+        candidate.manualSource = String(configuredNames[row.staffName].role || '').trim().toLowerCase() === 'substitute'
+          ? 'Subs'
+          : 'Coverage Staff';
+      }
       byName[row.staffName] = candidate;
     });
 
@@ -1682,7 +1687,11 @@ function getManualCoverageChoices_(payload) {
   });
 
   choices.sort((a, b) => {
-    const sourceRank = source => source === 'Field Trip Pool' ? 0 : source === 'Coverage Staff' ? 1 : 2;
+    const sourceRank = source =>
+      source === 'Field Trip Pool' ? 0 :
+      source === 'Coverage Staff' ? 1 :
+      source === 'Available Staff' ? 2 :
+      source === 'Subs' ? 3 : 4;
     return sourceRank(a.source) - sourceRank(b.source) ||
       b.score - a.score ||
       a.name.localeCompare(b.name);
