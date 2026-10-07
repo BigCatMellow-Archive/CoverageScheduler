@@ -20,8 +20,8 @@ function onOpen() {
     .addToUi();
 }
 
-// Manual edits to source/config sheets must be visible immediately even though
-// Teacher Schedule and Config use a short Script Cache entry for speed.
+// Manual edits to source/config sheets must be visible immediately. Config
+// uses a short Script Cache entry; Teacher Schedule remains request-local only.
 function onEdit(e) {
   try {
     const sheet = e && e.range ? e.range.getSheet() : null;
