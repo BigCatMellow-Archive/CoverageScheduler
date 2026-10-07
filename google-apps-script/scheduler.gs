@@ -2454,7 +2454,8 @@ function fillDeferredFieldTripNeeds_(
   config,
   date,
   planRows,
-  summary
+  summary,
+  fieldTripPoolRows
 ) {
   const assignedAbsentNames = {};
 
