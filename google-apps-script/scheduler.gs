@@ -986,6 +986,7 @@ function ensureFieldTripCoveragePoolSheet_() {
   } else {
     ensureHeaderRow_(sheet, SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_POOL_SHEET_].headers);
   }
+  if (typeof formatFieldTripCoveragePoolSheet_ === 'function') formatFieldTripCoveragePoolSheet_(sheet);
   if (sheet.isSheetHidden()) sheet.showSheet();
   return sheet;
 }
