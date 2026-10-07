@@ -77,7 +77,7 @@ You can also add notes and, for a normal single-person absence, optionally speci
 
 Field trips are separate from ordinary absences. Use **+ Field Trip** to create one, or **Calendar** to find and edit an existing event.
 
-A field trip is stored once rather than as several independent absence rows. It can be one day or span multiple/overnight dates. The selected grade(s), staff, departure, and return determine which classes disappear, which classes still need coverage, and which teachers staying behind become temporarily available.
+A field trip is stored once rather than as several independent absence rows. It can be one day or span multiple/overnight dates. The trip name, destination, selected grade(s), staff, departure, and return determine both the field-trip coverage form and which classes disappear, which classes still need coverage, and which teachers staying behind become temporarily available.
 
 ### 3. Confirm the coverage team
 
@@ -117,6 +117,8 @@ When the plan looks right, use the two actions independently:
 2. Click **Create Handout** to build a Google Docs handout from the exact plan currently on screen and open it from the confirmation link.
 
 Saving does not create a handout, and creating a handout does not save the plan. Manual reassignments made after generation are still preserved because both actions use the reviewed on-screen plan. The handout is organized by coverage person so each person can see where they need to be and when. Every generated handout is stored in a persistent Drive folder named from the workbook, such as `2627 Coverage Scheduler - Handouts`, so that folder can be shared once with anyone who needs access.
+
+Field-trip rows use the configured Google Docs field-trip form template instead of the ordinary landscape handout. The scheduler makes a copy of the template, never edits the original, fills one half-form per trip participant who needs coverage, and uses the second half for the next participant or a continuation. The form's `WITH` column is filled only when Teacher Schedule identifies one unambiguous other teacher teaching the same class during that block; otherwise it is left blank. `Config!Field_Trip_Form_Template_ID` stores the private Drive template ID outside the repository.
 
 If there are no assigned coverage rows, the plan can still be saved, but there is nothing to include in a coverage-person handout.
 

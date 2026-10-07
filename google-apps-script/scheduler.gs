@@ -53,6 +53,7 @@ const HEADER_ALIASES = {
   'Field Trips': {
     Event_ID: ['Event_ID', 'Event ID', 'ID'],
     Name: ['Name', 'Event_Name', 'Event Name'],
+    Destination: ['Destination', 'Trip_Destination', 'Trip Destination'],
     Date: ['Date', 'Start_Date', 'Start Date'],
     End_Date: ['End_Date', 'End Date'],
     Start: ['Start', 'Start_Time', 'Start Time'],
@@ -237,6 +238,7 @@ function normalizeFieldTripRow_(row) {
   return {
     eventId: String(row.Event_ID || '').trim(),
     name: String(row.Name || '').trim(),
+    destination: String(row.Destination || '').trim(),
     date: startDate,
     startDate: startDate,
     endDate: endDate,
@@ -313,6 +315,7 @@ function fieldTripIdentityKey_(trip) {
   const startDate = normalizeDateKey_(trip.startDate || trip.date || trip.Date);
   const endDate = normalizeDateKey_(trip.endDate || trip.End_Date || trip.startDate || trip.date || trip.Date);
   const name = String(trip.name || trip.Name || '').trim().toLowerCase();
+  const destination = String(trip.destination || trip.Destination || '').trim().toLowerCase();
   const start = timeToDisplay_(trip.start || trip.Start);
   const end = timeToDisplay_(trip.end || trip.End);
   const grades = normalizeFieldTripGrades_(trip.grades || trip.Grades).slice().sort().join('|');
@@ -328,6 +331,7 @@ function fieldTripIdentityKey_(trip) {
     start || '',
     end || '',
     name,
+    destination,
     grades,
     staff
   ].join('::');
@@ -342,6 +346,7 @@ function saveFieldTripUnlocked_(payload) {
   const startDate = normalizeDateKey_(payload.startDate || payload.date);
   const endDate = normalizeDateKey_(payload.endDate || payload.startDate || payload.date);
   const name = String(payload.name || '').trim();
+  const destination = String(payload.destination || '').trim();
   const start = timeToDisplay_(payload.start);
   const end = timeToDisplay_(payload.end);
   const grades = normalizeFieldTripGrades_(payload.grades);
@@ -375,6 +380,7 @@ function saveFieldTripUnlocked_(payload) {
 
   const incomingIdentity = fieldTripIdentityKey_({
     name: name,
+    destination: destination,
     startDate: startDate,
     endDate: endDate,
     start: start,
@@ -420,6 +426,7 @@ function saveFieldTripUnlocked_(payload) {
   setSheetRowObject_(sheet, targetRow, headers, HEADER_ALIASES['Field Trips'], {
     Event_ID: eventId,
     Name: name,
+    Destination: destination,
     Date: startDate,
     End_Date: endDate,
     Start: start,
@@ -432,6 +439,7 @@ function saveFieldTripUnlocked_(payload) {
   return normalizeFieldTripRow_({
     Event_ID: eventId,
     Name: name,
+    Destination: destination,
     Date: startDate,
     End_Date: endDate,
     Start: start,

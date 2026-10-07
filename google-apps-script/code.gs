@@ -1,4 +1,4 @@
-const COVERAGE_WEB_API_VERSION = 6;
+const COVERAGE_WEB_API_VERSION = 7;
 
 const APP_TITLE = 'Coverage Scheduler';
 const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
@@ -363,11 +363,11 @@ function getHandoutOpenLinkUi_() {
     '  try{',
     "    const handout=await gas('webCreateHandoutFromRows',S.plan);",
     "    const n=$('notif');",
-    "    const name=handout&&handout.name?handout.name:'Google Doc';",
-    "    const url=handout&&handout.url?handout.url:'';",
+    "    const docs=handout&&Array.isArray(handout.documents)&&handout.documents.length?handout.documents:[handout];",
     "    const folderUrl=handout&&handout.folderUrl?handout.folderUrl:'';",
+    "    const links=docs.filter(function(doc){return doc&&doc.url;}).map(function(doc){var label=doc.label||doc.name||'Open Handout';return ' <a class=\"handout-open\" href=\"'+esc(doc.url)+'\" target=\"_blank\" rel=\"noopener noreferrer\">'+esc(label)+' ↗</a>';}).join('');",
     "    n.className='notif ok';",
-    "    n.innerHTML='✓ Created '+esc(name)+' in the Handouts folder.'+(url?' <a class=\"handout-open\" href=\"'+esc(url)+'\" target=\"_blank\" rel=\"noopener noreferrer\">Open Handout ↗</a>':'')+(folderUrl?' <a class=\"handout-open handout-folder-open\" href=\"'+esc(folderUrl)+'\" target=\"_blank\" rel=\"noopener noreferrer\">Open Handouts Folder ↗</a>':'')+'<button onclick=\"this.parentElement.classList.add(\\'hidden\\')\">×</button>';",
+    "    n.innerHTML='✓ Created '+docs.length+' handout document'+(docs.length===1?'':'s')+' in the Handouts folder.'+links+(folderUrl?' <a class=\"handout-open handout-folder-open\" href=\"'+esc(folderUrl)+'\" target=\"_blank\" rel=\"noopener noreferrer\">Open Handouts Folder ↗</a>':'')+'<button onclick=\"this.parentElement.classList.add(\\'hidden\\')\">×</button>';",
     "    n.classList.remove('hidden');",
     "    clearTimeout(flash.t);",
     '  }catch(e){fail(e)}',
@@ -643,7 +643,7 @@ function webSaveCoverageAndCreateHandout(rows) {
 
   if (assignedRows.length) {
     try {
-      handout = createCoverageHandoutDocWide_(assignedRows, saveResult.date, saveResult.day);
+      handout = createCoverageHandoutPackage_(assignedRows, saveResult.date, saveResult.day);
     } catch (error) {
       handoutError = error && error.message ? error.message : String(error || 'Unknown handout error');
     }
@@ -687,7 +687,7 @@ function webCreateHandoutFromRows(rows) {
     throw new Error('A handout can only be created for one date at a time.');
   }
 
-  return makeWebSafe_(createCoverageHandoutDocWide_(assignedRows, date, day));
+  return makeWebSafe_(createCoverageHandoutPackage_(assignedRows, date, day));
 }
 
 function webValidateTeacherSchedule() {
@@ -755,9 +755,14 @@ function menuValidateTeacherScheduleSource() {
 
 function menuCreateHandoutDoc() {
   const result = createCoverageHandoutDocWideFromLatestPreview_();
+  const docs = result.documents && result.documents.length ? result.documents : [result];
+  const docText = docs.map(doc =>
+    (doc.label || doc.name || 'Handout') + ':\n' + String(doc.url || '')
+  ).join('\n\n');
+
   SpreadsheetApp.getUi().alert(
-    'Handout doc created',
-    result.name + '\n\nHandout:\n' + result.url + '\n\nHandouts folder:\n' + result.folderUrl,
+    'Handout docs created',
+    docText + '\n\nHandouts folder:\n' + result.folderUrl,
     SpreadsheetApp.getUi().ButtonSet.OK
   );
 }

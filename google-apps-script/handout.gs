@@ -8,7 +8,387 @@ function createCoverageHandoutDocWideFromLatestPreview_() {
 
   const date = normalizeDateKey_(rows[0].Date) || Utilities.formatDate(new Date(), coverageTimeZone_(), 'yyyy-MM-dd');
   const day = String(rows[0].Day || '').trim();
-  return createCoverageHandoutDocWide_(rows, date, day);
+  return createCoverageHandoutPackage_(rows, date, day);
+}
+
+function createCoverageHandoutPackage_(rows, date, day) {
+  const assignedRows = (rows || []).filter(row =>
+    String(row.Status || '').trim() === 'Assigned' &&
+    String(row.Assigned_Coverage || '').trim()
+  );
+
+  if (!assignedRows.length) {
+    throw new Error('No assigned coverage rows are available for a handout.');
+  }
+
+  const ordinaryRows = [];
+  const fieldTripRowsByEvent = {};
+
+  assignedRows.forEach(row => {
+    const eventId = String(row.Event_ID || '').trim();
+    if (!eventId) {
+      ordinaryRows.push(row);
+      return;
+    }
+    if (!fieldTripRowsByEvent[eventId]) fieldTripRowsByEvent[eventId] = [];
+    fieldTripRowsByEvent[eventId].push(row);
+  });
+
+  const fieldTripEventIds = Object.keys(fieldTripRowsByEvent);
+  const folder = getCoverageHandoutFolder_();
+  const documents = [];
+
+  let templateFile = null;
+  let fieldTripContext = null;
+
+  if (fieldTripEventIds.length) {
+    templateFile = getFieldTripFormTemplateFile_();
+    validateFieldTripFormTemplate_(DocumentApp.openById(templateFile.getId()).getBody());
+    fieldTripContext = buildFieldTripFormContext_(date, day);
+  }
+
+  if (ordinaryRows.length) {
+    const ordinary = createCoverageHandoutDocWide_(ordinaryRows, date, day);
+    documents.push(Object.assign({
+      type: 'coverage',
+      label: 'Coverage Handout'
+    }, ordinary));
+  }
+
+  fieldTripEventIds.sort().forEach(eventId => {
+    const trip = fieldTripContext.tripsById[eventId];
+    if (!trip) {
+      throw new Error(
+        'Field trip ' + eventId + ' is no longer available for ' + date +
+        '. Re-generate the plan before creating the handout.'
+      );
+    }
+
+    const tripDocs = createFieldTripCoverageFormDocs_(
+      fieldTripRowsByEvent[eventId],
+      trip,
+      date,
+      day,
+      fieldTripContext,
+      templateFile,
+      folder
+    );
+    tripDocs.forEach(doc => documents.push(doc));
+  });
+
+  if (!documents.length) {
+    throw new Error('No handout documents were created.');
+  }
+
+  const first = documents[0];
+  return {
+    id: first.id,
+    url: first.url,
+    name: documents.length === 1 ? first.name : ('Coverage Handouts - ' + date),
+    documents: documents,
+    folderId: folder.getId(),
+    folderUrl: folder.getUrl(),
+    folderName: folder.getName()
+  };
+}
+
+function getFieldTripFormTemplateFile_() {
+  const templateId = String(coverageConfig_().Field_Trip_Form_Template_ID || '').trim();
+  if (!templateId) {
+    throw new Error(
+      'Field trip handout template is not configured. Set Config → Field_Trip_Form_Template_ID to the Google Doc template ID.'
+    );
+  }
+
+  let file;
+  try {
+    file = DriveApp.getFileById(templateId);
+  } catch (error) {
+    throw new Error('The configured field trip handout template could not be opened.');
+  }
+
+  if (file.isTrashed()) {
+    throw new Error('The configured field trip handout template is in the trash.');
+  }
+  if (file.getMimeType() !== MimeType.GOOGLE_DOCS) {
+    throw new Error('The field trip handout template must be a native Google Doc.');
+  }
+
+  return file;
+}
+
+function validateFieldTripFormTemplate_(body) {
+  const tables = body.getTables();
+  if (tables.length < 2) {
+    throw new Error('The field trip handout template no longer contains both coverage tables.');
+  }
+
+  for (let i = 0; i < 2; i++) {
+    if (tables[i].getNumRows() < 7 || tables[i].getRow(0).getNumCells() < 5) {
+      throw new Error('The field trip handout template table structure has changed.');
+    }
+  }
+
+  [
+    'COVERAGE FOR:',
+    'DATE:',
+    'CLASS(ES) TAKING TRIP:',
+    'TRIP DESTINATION:',
+    'DEPARTURE TIME:',
+    'APPROXIMATE RETURN TIME:'
+  ].forEach(label => {
+    if (fieldTripTemplateParagraphs_(body, label).length < 2) {
+      throw new Error('The field trip handout template is missing the expected label: ' + label);
+    }
+  });
+}
+
+function buildFieldTripFormContext_(date, day) {
+  const config = getConfigMap_();
+  const teacherSchedule = filterTeacherScheduleForDate_(
+    readSheetObjects_('Teacher Schedule'),
+    date,
+    config
+  )
+    .map(row => normalizeTeacherScheduleRow_(row))
+    .filter(row => row.day === day && row.staffName);
+
+  const trips = getFieldTripsForDate_(date);
+  const tripsById = {};
+  trips.forEach(trip => {
+    if (trip.eventId) tripsById[trip.eventId] = trip;
+  });
+
+  const effectiveAbsences = getDailyAbsencesForDate_(date, day)
+    .concat(buildFieldTripParticipantAbsences_(trips));
+  const absenceState = makeEmptyState_();
+  absenceState.absencesByCandidate = buildAbsenceWindowsByStaff_(effectiveAbsences);
+
+  return {
+    teacherSchedule: teacherSchedule,
+    tripsById: tripsById,
+    absenceState: absenceState
+  };
+}
+
+function createFieldTripCoverageFormDocs_(rows, trip, date, day, context, templateFile, folder) {
+  const byTeacher = {};
+  (rows || []).forEach(row => {
+    const teacher = String(row.Absent_Staff || '').trim();
+    if (!teacher) return;
+    if (!byTeacher[teacher]) byTeacher[teacher] = [];
+    byTeacher[teacher].push(row);
+  });
+
+  const formUnits = [];
+  Object.keys(byTeacher).sort((a, b) => a.localeCompare(b)).forEach(teacher => {
+    const teacherRows = byTeacher[teacher]
+      .slice()
+      .sort((a, b) =>
+        timeToMinutes_(a.Start) - timeToMinutes_(b.Start) ||
+        String(a.Class || '').localeCompare(String(b.Class || ''))
+      );
+
+    for (let offset = 0; offset < teacherRows.length; offset += 6) {
+      formUnits.push({
+        coverageFor: teacher,
+        rows: teacherRows.slice(offset, offset + 6)
+      });
+    }
+  });
+
+  if (!formUnits.length) return [];
+
+  const results = [];
+  const totalDocs = Math.ceil(formUnits.length / 2);
+
+  for (let unitIndex = 0; unitIndex < formUnits.length; unitIndex += 2) {
+    const docNumber = Math.floor(unitIndex / 2) + 1;
+    const partSuffix = totalDocs > 1 ? ' - Part ' + docNumber : '';
+    const outputName = 'Field Trip Coverage - ' + (trip.name || 'Field Trip') + ' - ' + date + partSuffix;
+    const copy = templateFile.makeCopy(outputName, folder);
+    const doc = DocumentApp.openById(copy.getId());
+    const body = doc.getBody();
+
+    validateFieldTripFormTemplate_(body);
+    fillFieldTripForm_(body, 0, formUnits[unitIndex], trip, date, context);
+
+    if (unitIndex + 1 < formUnits.length) {
+      fillFieldTripForm_(body, 1, formUnits[unitIndex + 1], trip, date, context);
+    }
+
+    doc.saveAndClose();
+
+    results.push({
+      type: 'field-trip',
+      label: totalDocs > 1
+        ? 'Field Trip Form - ' + (trip.name || 'Field Trip') + ' (' + docNumber + '/' + totalDocs + ')'
+        : 'Field Trip Form - ' + (trip.name || 'Field Trip'),
+      eventId: trip.eventId || '',
+      id: copy.getId(),
+      url: copy.getUrl(),
+      name: copy.getName(),
+      folderId: folder.getId(),
+      folderUrl: folder.getUrl(),
+      folderName: folder.getName()
+    });
+  }
+
+  return results;
+}
+
+function fillFieldTripForm_(body, formIndex, formUnit, trip, date, context) {
+  insertFieldTripTemplateValue_(body, 'COVERAGE FOR:', formIndex, formUnit.coverageFor);
+  insertFieldTripTemplateValue_(body, 'DATE:', formIndex, formatFieldTripFormDate_(date));
+  insertFieldTripTemplateValue_(body, 'CLASS(ES) TAKING TRIP:', formIndex, formatFieldTripFormGrades_(trip.grades));
+  insertFieldTripTemplateValue_(body, 'TRIP DESTINATION:', formIndex, trip.destination || '');
+  insertFieldTripTemplateValue_(body, 'DEPARTURE TIME:', formIndex, trip.start || '');
+  insertFieldTripTemplateValue_(body, 'APPROXIMATE RETURN TIME:', formIndex, trip.end || '');
+
+  const table = body.getTables()[formIndex];
+  (formUnit.rows || []).forEach((row, rowIndex) => {
+    const withTeacher = resolveFieldTripWithTeacher_(row, trip, context);
+    const values = [
+      String(row.Assigned_Coverage || '').trim(),
+      formatWideHandoutTimeRange_(row.Start, row.End),
+      formatFieldTripRoomSubject_(row),
+      String(trip.notes || '').trim(),
+      withTeacher
+    ];
+
+    values.forEach((value, columnIndex) => {
+      appendFieldTripTemplateCellText_(table.getCell(rowIndex + 1, columnIndex), value);
+    });
+  });
+}
+
+function fieldTripTemplateParagraphs_(body, label) {
+  return body.getParagraphs().filter(paragraph =>
+    String(paragraph.getText() || '').indexOf(label) !== -1
+  );
+}
+
+function insertFieldTripTemplateValue_(body, label, occurrence, value) {
+  const textValue = String(value == null ? '' : value).trim();
+  if (!textValue) return;
+
+  const paragraphs = fieldTripTemplateParagraphs_(body, label);
+  if (paragraphs.length <= occurrence) {
+    throw new Error('The field trip handout template is missing ' + label);
+  }
+
+  const text = paragraphs[occurrence].editAsText();
+  const current = text.getText();
+  const labelIndex = current.indexOf(label);
+  if (labelIndex === -1) {
+    throw new Error('The field trip handout template is missing ' + label);
+  }
+
+  text.insertText(labelIndex + label.length, ' ' + textValue);
+}
+
+function appendFieldTripTemplateCellText_(cell, value) {
+  const textValue = String(value == null ? '' : value).trim();
+  if (!textValue) return;
+
+  for (let i = 0; i < cell.getNumChildren(); i++) {
+    const child = cell.getChild(i);
+    if (child.getType() === DocumentApp.ElementType.PARAGRAPH) {
+      child.asParagraph().appendText(textValue);
+      return;
+    }
+  }
+
+  cell.appendParagraph(textValue);
+}
+
+function formatFieldTripFormDate_(date) {
+  const key = normalizeDateKey_(date);
+  if (!key) return String(date || '');
+
+  const parsed = new Date(key + 'T12:00:00');
+  if (isNaN(parsed)) return key;
+  return Utilities.formatDate(parsed, coverageTimeZone_(), 'M/d/yyyy');
+}
+
+function formatFieldTripFormGrades_(grades) {
+  return (grades || []).map(value => String(value || '').trim()).filter(Boolean).join(', ');
+}
+
+function formatFieldTripRoomSubject_(row) {
+  const room = String(row.Room || '').trim();
+  const subject = String(row.Subject || row.Class || row.Assignment_Type || '').trim();
+
+  if (room && subject) return room + ' / ' + subject;
+  return room || subject;
+}
+
+function normalizeFieldTripClassMatch_(value) {
+  return String(value == null ? '' : value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function fieldTripClassSectionKey_(value) {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return '';
+  const section = raw.split(/\s+[—–-]\s+/)[0].trim();
+  return normalizeFieldTripClassMatch_(section);
+}
+
+function resolveFieldTripWithTeacher_(row, trip, context) {
+  const absentTeacher = String(row.Absent_Staff || '').trim();
+  const assignedCoverage = String(row.Assigned_Coverage || '').trim();
+  const block = planRowToCoverageBlock_(row);
+  if (block.startMinutes == null || block.endMinutes == null) return '';
+
+  const excluded = {};
+  excluded[absentTeacher] = true;
+  excluded[assignedCoverage] = true;
+  (trip.staffNames || []).forEach(name => { excluded[String(name || '').trim()] = true; });
+
+  const classKey = normalizeFieldTripClassMatch_(row.Class);
+  const sectionKey = fieldTripClassSectionKey_(row.Class);
+  const roomKey = normalizeFieldTripClassMatch_(row.Room);
+  const subjectKey = normalizeFieldTripClassMatch_(row.Subject);
+
+  const availableRows = (context.teacherSchedule || []).filter(scheduleRow => {
+    if (!scheduleRow.staffName || excluded[scheduleRow.staffName]) return false;
+    if (scheduleRow.startMinutes == null || scheduleRow.endMinutes == null) return false;
+    if (scheduleRow.startMinutes > block.startMinutes || scheduleRow.endMinutes < block.endMinutes) return false;
+    if (candidateIsAbsentForBlock_(scheduleRow.staffName, block, context.absenceState)) return false;
+
+    const type = String(scheduleRow.assignmentType || '').trim().toLowerCase();
+    if (['planning', 'break', 'lunch', 'meeting', 'duty'].indexOf(type) !== -1) return false;
+    return true;
+  });
+
+  let matches = availableRows.filter(scheduleRow =>
+    classKey &&
+    normalizeFieldTripClassMatch_(scheduleRow.className) === classKey
+  );
+
+  // Co-teacher rows sometimes encode one another in Subject, e.g.
+  // "3D — Logic w/Vlattas" / "3D — Logic w/Harrington". In that case the
+  // full display names differ even though the section, room, and time are the
+  // same. Use section + room as the next conservative match.
+  if (!matches.length && sectionKey && roomKey) {
+    matches = availableRows.filter(scheduleRow =>
+      fieldTripClassSectionKey_(scheduleRow.className) === sectionKey &&
+      normalizeFieldTripClassMatch_(scheduleRow.room) === roomKey
+    );
+  }
+
+  if (!matches.length && roomKey && subjectKey) {
+    matches = availableRows.filter(scheduleRow =>
+      normalizeFieldTripClassMatch_(scheduleRow.room) === roomKey &&
+      normalizeFieldTripClassMatch_(scheduleRow.subject) === subjectKey
+    );
+  }
+
+  const names = Array.from(new Set(matches.map(scheduleRow => scheduleRow.staffName).filter(Boolean)));
+  return names.length === 1 ? names[0] : '';
 }
 
 function createCoverageHandoutDocWide_(rows, date, day) {
