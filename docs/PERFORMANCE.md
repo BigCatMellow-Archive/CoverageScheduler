@@ -33,7 +33,7 @@ No external cache, database, API, or new credential is introduced.
 
 Field-trip candidate discovery used to rescan the full Teacher Schedule during date loading, Generate, and manual coverage work to answer: **which staff are released because this trip grade is away?**
 
-The managed hidden sheet `Field Trip Coverage Cache` now materializes that answer.
+The managed hidden sheet `Field Trip Coverage Pool` now materializes that answer.
 
 - saving or editing a field trip rebuilds the cache rows for that event;
 - each row is keyed by event/date/staff and stores the trip window/grade context;
