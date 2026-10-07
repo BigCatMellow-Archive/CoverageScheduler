@@ -3,7 +3,7 @@ const COVERAGE_WEB_API_VERSION = 9;
 const APP_TITLE = 'Coverage Scheduler';
 const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
 const COVERAGE_SCHEMA_VERSION_PROPERTY = 'COVERAGE_SCHEMA_VERSION';
-const COVERAGE_SCHEMA_VERSION = '2026-10-07-field-trip-cache-1';
+const COVERAGE_SCHEMA_VERSION = '2026-10-07-field-trip-pool-1';
 let COVERAGE_WEB_READY_THIS_REQUEST_ = false;
 
 function onOpen() {
@@ -15,6 +15,7 @@ function onOpen() {
     .addItem('Validate teacher schedule', 'menuValidateTeacherScheduleSource')
     .addSeparator()
     .addItem('Generate preview for selected day', 'generateCoveragePreviewFromPrompt')
+    .addItem('Rebuild field trip coverage pool', 'menuRebuildFieldTripCoveragePool')
     .addItem('Create handout doc from latest preview', 'menuCreateHandoutDoc')
     .addItem('Clear Coverage Output', 'clearCoverageOutput')
     .addToUi();
@@ -27,8 +28,8 @@ function onEdit(e) {
     const sheet = e && e.range ? e.range.getSheet() : null;
     if (sheet) {
       invalidateCoverageSheetCache_(sheet.getName());
-      if (['Teacher Schedule', 'Field Trips', 'Config'].indexOf(sheet.getName()) !== -1) {
-        markFieldTripCoverageCacheDirty_();
+      if (['Teacher Schedule', 'Field Trips', 'Config', 'Coverage Staff', 'Substitute Availability', 'Substitutes'].indexOf(sheet.getName()) !== -1) {
+        markFieldTripCoveragePoolDirty_();
       }
     }
   } catch (error) {
@@ -439,6 +440,7 @@ function ensureCoverageWorkbookReadyForWeb_() {
       'Coverage Staff',
       'Substitute Availability',
       'Daily Absences',
+      'Field Trip Coverage Pool',
       'Coverage Output',
       'Lists',
       'Config',
@@ -447,7 +449,7 @@ function ensureCoverageWorkbookReadyForWeb_() {
     const missing = requiredSheets.filter(name => !ss.getSheetByName(name));
     if (missing.length) setupCoverageWorkbookFromTeacherSchedule();
     ensureStaffListSheet_();
-    markFieldTripCoverageCacheDirty_();
+    markFieldTripCoveragePoolDirty_();
     markCoverageSchemaReady_();
   } else if (!ss.getSheetByName('Teacher Schedule')) {
     // Fail clearly if the one authoritative source tab was removed after setup.
