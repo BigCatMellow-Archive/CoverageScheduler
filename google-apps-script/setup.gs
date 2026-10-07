@@ -172,6 +172,9 @@ function setupCoverageWorkbook() {
     invalidateCoverageSheetCache_('Teacher Schedule');
     invalidateCoverageSheetCache_('Config');
   }
+  if (typeof markFieldTripCoverageCacheDirty_ === 'function') {
+    markFieldTripCoverageCacheDirty_();
+  }
   ss.toast('Coverage Scheduler workbook is ready.', APP_TITLE, 5);
 }
 
