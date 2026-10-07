@@ -14,7 +14,7 @@ The main bootstrap and Generate paths also prime the sheets they need as a reque
 
 ### Short Google-managed cache for stable sources
 
-`Teacher Schedule` and `Config` use Apps Script `CacheService` for up to 60 seconds.
+`Config` uses Apps Script `CacheService` for up to 60 seconds. `Teacher Schedule` deliberately does not use cross-request caching; it is kept only in the request-local snapshot.
 
 Important properties:
 
@@ -23,7 +23,7 @@ Important properties:
 - a cache miss always falls back to the sheet;
 - app writes invalidate the matching cache entry;
 - the spreadsheet-bound `onEdit(e)` handler invalidates the entry when a user manually edits a source/config sheet;
-- if the payload is too large for a safe cache entry, Teacher Schedule simply skips persistent caching and continues normally.
+- `Teacher Schedule` always comes from the live Sheet at the start of each server request, then is reused only within that request.
 
 No external cache, database, API, or new credential is introduced.
 
