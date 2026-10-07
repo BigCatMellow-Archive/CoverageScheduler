@@ -983,7 +983,6 @@ function fieldTripAffectedNamesForDate_(trip, date, teacherScheduleRows, config)
   (activeTrip.staffNames || []).forEach(name => { participantSet[String(name || '').trim()] = true; });
 
   const affected = {};
-  normalizedScheduleRowsFor_(filtered, '', day); // ensure request-local schedule index is built once.
   filtered.forEach(raw => {
     const row = normalizeTeacherScheduleRow_(raw);
     if (!row.staffName || row.day !== day) return;
@@ -2285,11 +2284,6 @@ function generateCoveragePreview(payload) {
   coveragePerfMark_('snapshot-loaded');
 
   const config = getConfigMap_();
-  const teacherSchedule = filterTeacherScheduleForDate_(
-    readSheetObjects_('Teacher Schedule'),
-    date,
-    config
-  );
   const configuredCoverageStaff = getCoverageStaffForDate_(date, day, config);
   const activeCoverageStaff = configuredCoverageStaff.filter(row => row.name && row.activeToday);
   const absences = getDailyAbsencesForDate_(date, day);
@@ -4164,5 +4158,6 @@ function backfillTeacherScheduleDerivedFields() {
   sheet.getRange(2, 1, out.length, headers.length).setValues(out);
   incrementCoverageMetric_('sheetWrites');
   invalidateCoverageSheetCache_('Teacher Schedule');
+  markFieldTripCoverageCacheDirty_();
 }
 
