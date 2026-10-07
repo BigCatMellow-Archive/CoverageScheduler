@@ -535,7 +535,7 @@ Most day-to-day users should not need to edit `Config`.
 
 ## Performance
 
-The current Apps Script implementation keeps Google Sheets as the source of truth but avoids repeatedly reading the same tabs during one web action. It uses request-local sheet snapshots, short Google-managed caching for `Teacher Schedule` and `Config`, one-row batched writes, and one-read/one-write handling for multi-day absences.
+The current Apps Script implementation keeps Google Sheets as the source of truth but avoids repeatedly reading the same tabs during one web action. It uses request-local sheet snapshots, short Google-managed caching for `Config`, one-row batched writes, and one-read/one-write handling for multi-day absences. `Teacher Schedule` is cached only for the current request so coverage dropdowns and eligibility checks always use the exact live Sheet values.
 
 Every web endpoint emits a timing/counter summary to Apps Script execution logs without logging staff names, absence details, or schedule contents. See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for the cache/invalidation model and what to measure after deployment.
 
