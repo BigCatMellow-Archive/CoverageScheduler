@@ -103,6 +103,12 @@ When you run **Coverage Scheduler → Set up workbook** from the target spreadsh
 
 If you copy the project to a different workbook, run **Set up workbook** from the new spreadsheet to update the stored connection.
 
+## Performance behavior
+
+The web app now treats each server call as one request snapshot: repeated reads of the same managed tab are served from memory for that request. `Teacher Schedule` and `Config` also use a short Apps Script cache that is invalidated by app writes and spreadsheet edits. Multi-day absence entry writes `Daily Absences` once for the whole selected range rather than rewriting it once per day.
+
+Apps Script execution logs include a `[Coverage Performance]` JSON summary for each web endpoint. See [`../docs/PERFORMANCE.md`](../docs/PERFORMANCE.md) for details.
+
 ## Updating an existing web deployment
 
 Saving newer code in Apps Script does not automatically update a versioned production deployment.

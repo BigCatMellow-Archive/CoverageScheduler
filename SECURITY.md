@@ -24,3 +24,15 @@ Removing a file in a later commit does not remove it from Git history. If real s
 ## Application permissions
 
 The Apps Script project works with the active Google Sheet and creates Google Docs handouts. Review the authorization prompt before granting access and deploy the script only in Google accounts where that access is appropriate.
+
+## Web app deployment
+
+For live school staffing data, restrict the deployed web app to the intended school/Google Workspace audience. Do not deploy the operational application for anonymous/public access.
+
+Use the least-privileged execution/deployment arrangement that works with the school's sharing model, and review the Google authorization prompt when scopes change.
+
+## Performance cache privacy
+
+The performance layer does not introduce an external datastore. `Teacher Schedule` and `Config` may be held briefly in Google Apps Script `CacheService` (up to 60 seconds) to reduce repeated Spreadsheet service calls. Cache keys are scoped to the connected spreadsheet ID. Manual edits and application writes invalidate the relevant entries.
+
+Performance logs contain request names, timings, cache hit/read counts, and write counts only. They must not include staff names, absence notes, schedule rows, or assignment contents.

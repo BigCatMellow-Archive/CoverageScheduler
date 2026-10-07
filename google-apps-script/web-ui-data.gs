@@ -234,6 +234,8 @@ function deleteCoverageStaffFromWebUnlocked_(payload) {
   for (let r = 1; r < values.length; r++) {
     if (String(values[r][nameCol] || '').trim() === name) {
       sheet.deleteRow(r + 1);
+      incrementCoverageMetric_('sheetWrites');
+      invalidateCoverageSheetCache_(sheetName);
       break;
     }
   }
@@ -250,9 +252,15 @@ function renameCoverageAvailabilityRows_(oldName, newName) {
   const headers = values[0].map(h => String(h || '').trim());
   const nameCol = findColumnByAliases_(headers, HEADER_ALIASES['Substitute Availability'].Name);
   if (nameCol === -1) return;
+  let changed = false;
   for (let r = 1; r < values.length; r++) {
     if (String(values[r][nameCol] || '').trim() === oldName) {
       sheet.getRange(r + 1, nameCol + 1).setValue(newName);
+      changed = true;
     }
+  }
+  if (changed) {
+    incrementCoverageMetric_('sheetWrites');
+    invalidateCoverageSheetCache_('Substitute Availability');
   }
 }
