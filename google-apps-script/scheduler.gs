@@ -2200,7 +2200,6 @@ function generateCoveragePreview(payload) {
     'Substitute Availability',
     'Daily Absences',
     'Field Trips',
-    FIELD_TRIP_COVERAGE_CACHE_SHEET_,
     'Config'
   ]);
   coveragePerfMark_('snapshot-loaded');
