@@ -1,4 +1,4 @@
-const COVERAGE_WEB_API_VERSION = 4;
+const COVERAGE_WEB_API_VERSION = 5;
 
 const APP_TITLE = 'Coverage Scheduler';
 const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
@@ -165,6 +165,7 @@ function getWorkingOverlayUi_() {
     "    webGetBootstrap:['Loading date…','Loading absences, coverage staff, and the saved plan.'],",
     "    webGenerateCoverage:['Generating coverage plan…','Matching schedules and available coverage staff.'],",
     "    webCreateHandout:['Building handout…','Creating and formatting the Google Doc.'],",
+    "    webCreateHandoutFromRows:['Building handout…','Creating the Google Doc from the reviewed plan.'],",
     "    webSaveCoverage:['Saving coverage plan…','Writing the plan to Coverage Output.'],",
     "    webSaveCoverageAndCreateHandout:['Saving plan & building handout…','Writing Coverage Output and creating the Google Doc from the same plan.'],",
     "    webSaveAbsences:['Saving absences…','Updating the selected day.'],",
@@ -356,24 +357,14 @@ function getHandoutOpenLinkUi_() {
     '.notif .handout-open:hover{background:#14532d}',
     '</style>',
     '<script>',
-    'saveAndHandout = async function(){',
+    'createHandout = async function(){',
     '  try{',
-    "    const r=await gas('webSaveCoverageAndCreateHandout',S.plan);",
+    "    const handout=await gas('webCreateHandoutFromRows',S.plan);",
     "    const n=$('notif');",
-    "    const saved=(r&&r.savedRows)||S.plan.length;",
-    "    const handout=r&&r.handout?r.handout:null;",
     "    const name=handout&&handout.name?handout.name:'Google Doc';",
     "    const url=handout&&handout.url?handout.url:'';",
-    "    if(handout){",
-    "      n.className='notif ok';",
-    "      n.innerHTML='✓ Saved '+saved+' row'+(saved===1?'':'s')+' and created '+esc(name)+'.'+(url?' <a class=\"handout-open\" href=\"'+esc(url)+'\" target=\"_blank\" rel=\"noopener noreferrer\">Open Handout ↗</a>':'')+'<button onclick=\"this.parentElement.classList.add(\\\'hidden\\\')\">×</button>';",
-    "    }else if(r&&r.handoutError){",
-    "      n.className='notif warn';",
-    "      n.innerHTML='Saved '+saved+' row'+(saved===1?'':'s')+', but the handout could not be created: '+esc(r.handoutError)+'<button onclick=\"this.parentElement.classList.add(\\\'hidden\\\')\">×</button>';",
-    "    }else{",
-    "      n.className='notif warn';",
-    "      n.innerHTML='Saved '+saved+' row'+(saved===1?'':'s')+'. No assigned coverage was available for a handout.<button onclick=\"this.parentElement.classList.add(\\\'hidden\\\')\">×</button>';",
-    "    }",
+    "    n.className='notif ok';",
+    "    n.innerHTML='✓ Created '+esc(name)+'.'+(url?' <a class=\"handout-open\" href=\"'+esc(url)+'\" target=\"_blank\" rel=\"noopener noreferrer\">Open Handout ↗</a>':'')+'<button onclick=\"this.parentElement.classList.add(\\'hidden\\')\">×</button>';",
     "    n.classList.remove('hidden');",
     "    clearTimeout(flash.t);",
     '  }catch(e){fail(e)}',
@@ -381,6 +372,7 @@ function getHandoutOpenLinkUi_() {
     '</script>'
   ].join('\n');
 }
+
 function activateCoverageSpreadsheetForWeb_() {
   const spreadsheetId = PropertiesService.getScriptProperties()
     .getProperty(COVERAGE_SPREADSHEET_PROPERTY);
@@ -666,6 +658,33 @@ function webSaveCoverageAndCreateHandout(rows) {
 function webCreateHandout() {
   ensureCoverageWorkbookReadyForWeb_();
   return createCoverageHandoutDocWideFromLatestPreview_();
+}
+
+function webCreateHandoutFromRows(rows) {
+  ensureCoverageWorkbookReadyForWeb_();
+
+  const planRows = rows || [];
+  const assignedRows = planRows.filter(row =>
+    String(row.Status || '').trim() === 'Assigned' &&
+    String(row.Assigned_Coverage || '').trim()
+  );
+
+  if (!assignedRows.length) {
+    throw new Error('No assigned coverage rows are available for a handout.');
+  }
+
+  const date = normalizeDateKey_(assignedRows[0].Date);
+  const day = String(assignedRows[0].Day || guessDayCodeFromDate_(date) || '').trim();
+
+  if (!date || !day) {
+    throw new Error('The reviewed plan does not have a valid date.');
+  }
+
+  if (assignedRows.some(row => normalizeDateKey_(row.Date) !== date)) {
+    throw new Error('A handout can only be created for one date at a time.');
+  }
+
+  return makeWebSafe_(createCoverageHandoutDocWide_(assignedRows, date, day));
 }
 
 function webValidateTeacherSchedule() {
