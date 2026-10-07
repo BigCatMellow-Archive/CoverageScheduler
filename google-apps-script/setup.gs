@@ -61,6 +61,7 @@ const SHEET_SCHEMAS = {
     headers: [
       'Event_ID',
       'Name',
+      'Destination',
       'Date',
       'End_Date',
       'Start',
@@ -134,6 +135,7 @@ const DEFAULT_CONFIG = [
   ['Default_Max_Teachers_Per_Day', '2', 'Most different absent teachers one Coverage Staff person covers per day when their own Max_Teachers_Per_Day is blank. Leave this blank for no limit.'],
   ['Use_Lunch_For_Coverage', 'FALSE', 'TRUE: people can be assigned during their lunch unless Cover_Eligible_This_Block says No. FALSE: lunch is protected unless a row is explicitly marked Cover_Eligible_This_Block = Yes.'],
   ['Availability_Override_Mode', 'DATE', 'DATE: Substitute Availability rows and the web app availability switches override Coverage Staff defaults for that date. OFF: ignore them and use Coverage Staff defaults only.'],
+  ['Field_Trip_Form_Template_ID', '', 'Google Docs template ID used for field-trip coverage forms. The scheduler copies the template and never edits the original.'],
   ['Script_Time_Zone', Session.getScriptTimeZone(), 'Time zone for reading and showing dates and times, e.g. America/New_York. Keep it equal to the spreadsheet time zone (File > Settings). Unrecognized names are ignored.']
 ];
 
