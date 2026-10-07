@@ -905,13 +905,34 @@ function blockIsCancelledByFieldTrip_(row, fieldTrips) {
   );
 }
 
-function buildFieldTripParticipantAbsences_(fieldTrips) {
+function coveragePersonNameKey_(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function canonicalTeacherScheduleName_(name, teacherSchedule, day) {
+  const key = coveragePersonNameKey_(name);
+  if (!key) return String(name || '').trim();
+  const match = (teacherSchedule || [])
+    .map(row => normalizeTeacherScheduleRow_(row))
+    .find(row =>
+      row.staffName &&
+      (!day || row.day === day) &&
+      coveragePersonNameKey_(row.staffName) === key
+    );
+  return match ? match.staffName : String(name || '').trim();
+}
+
+function buildFieldTripParticipantAbsences_(fieldTrips, teacherSchedule, day) {
   const rows = [];
   (fieldTrips || []).forEach(trip => {
     const times = fieldTripTimes_(trip);
     (trip.staffNames || []).forEach(name => {
       rows.push({
-        staffName: name,
+        staffName: canonicalTeacherScheduleName_(name, teacherSchedule, day),
         absenceType: trip.allDayForDate ? 'Full Day' : 'Partial Day',
         startOverride: trip.allDayForDate ? '' : minutesToDisplay_(Math.min(times.startMinutes, 1439)),
         endOverride: trip.allDayForDate ? '' : minutesToDisplay_(Math.min(times.endMinutes, 1439)),
@@ -980,13 +1001,13 @@ function fieldTripAffectedNamesForDate_(trip, date, teacherScheduleRows, config)
   const day = guessDayCodeFromDate_(date);
   const filtered = filterTeacherScheduleForDate_(teacherScheduleRows, date, config);
   const participantSet = {};
-  (activeTrip.staffNames || []).forEach(name => { participantSet[String(name || '').trim()] = true; });
+  (activeTrip.staffNames || []).forEach(name => { participantSet[coveragePersonNameKey_(name)] = true; });
 
   const affected = {};
   filtered.forEach(raw => {
     const row = normalizeTeacherScheduleRow_(raw);
     if (!row.staffName || row.day !== day) return;
-    if (participantSet[row.staffName]) return;
+    if (participantSet[coveragePersonNameKey_(row.staffName)]) return;
     if (!fieldTripGradeMatches_(activeTrip, row.grade)) return;
     if (!isInstructionalGradeBlock_(row)) return;
     if (!blockOverlapsFieldTrip_(row, activeTrip)) return;
@@ -1792,7 +1813,7 @@ function buildCoverageLiveContext_(date, day) {
   );
   const absences = getDailyAbsencesForDate_(date, day);
   const fieldTrips = getFieldTripsForDate_(date);
-  const effectiveAbsences = absences.concat(buildFieldTripParticipantAbsences_(fieldTrips));
+  const effectiveAbsences = absences.concat(buildFieldTripParticipantAbsences_(fieldTrips, teacherSchedule, day));
   const candidates = buildManualCoverageCandidates_(date, day, config, fieldTrips, teacherSchedule);
   const needsByTeacher = buildCoverageNeedsByTeacher_(effectiveAbsences, teacherSchedule, day, fieldTrips);
 
@@ -2214,7 +2235,7 @@ function generateCoveragePreview(payload) {
   const activeCoverageStaff = configuredCoverageStaff.filter(row => row.name && row.activeToday);
   const absences = getDailyAbsencesForDate_(date, day);
   const fieldTrips = getFieldTripsForDate_(date);
-  const fieldTripAbsences = buildFieldTripParticipantAbsences_(fieldTrips);
+  const fieldTripAbsences = buildFieldTripParticipantAbsences_(fieldTrips, teacherSchedule, day);
   const effectiveAbsences = absences.concat(fieldTripAbsences);
   const coverageStaff = buildFieldTripCoverageCandidatesFromCache_(
     fieldTrips,
