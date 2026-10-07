@@ -447,6 +447,7 @@ function ensureCoverageWorkbookReadyForWeb_() {
     const missing = requiredSheets.filter(name => !ss.getSheetByName(name));
     if (missing.length) setupCoverageWorkbookFromTeacherSchedule();
     ensureStaffListSheet_();
+    markFieldTripCoverageCacheDirty_();
     markCoverageSchemaReady_();
   } else if (!ss.getSheetByName('Teacher Schedule')) {
     // Fail clearly if the one authoritative source tab was removed after setup.
