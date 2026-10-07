@@ -28,7 +28,7 @@ function onEdit(e) {
     const sheet = e && e.range ? e.range.getSheet() : null;
     if (sheet) {
       invalidateCoverageSheetCache_(sheet.getName());
-      if (['Teacher Schedule', 'Field Trips', 'Config', 'Coverage Staff', 'Substitute Availability', 'Substitutes'].indexOf(sheet.getName()) !== -1) {
+      if (['Teacher Schedule', 'Class Schedule', 'Field Trips', 'Config', 'Coverage Staff', 'Substitute Availability', 'Substitutes'].indexOf(sheet.getName()) !== -1) {
         markFieldTripCoveragePoolDirty_();
       }
     }
