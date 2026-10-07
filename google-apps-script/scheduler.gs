@@ -3968,6 +3968,7 @@ function upsertSubstituteAvailabilityUnlocked_(payload) {
   };
   if (targetRow === -1) targetRow = sheet.getLastRow() + 1;
   setSheetRowObject_(sheet, targetRow, headers, aliasMap, rowObject);
+  markFieldTripCoveragePoolDirty_();
   return getAllCoverageStaff_(date, day);
 }
 
