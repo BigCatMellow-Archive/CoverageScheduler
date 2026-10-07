@@ -412,7 +412,8 @@ async function openBlock(index){
       html+='<optgroup label="'+esc(group)+'">';
       rows.forEach(choice=>{
         const detail=(choice.source==='Coverage Staff'||choice.source==='Subs')&&choice.tier?' · Tier '+choice.tier:'';
-        html+='<option value="'+esc(choice.name)+'">'+esc(choice.name+detail)+'</option>';
+        const schedule=choice.scheduleContext?' — '+choice.scheduleContext:'';
+        html+='<option value="'+esc(choice.name)+'">'+esc(choice.name+detail+schedule)+'</option>';
       });
       html+='</optgroup>';
     });
