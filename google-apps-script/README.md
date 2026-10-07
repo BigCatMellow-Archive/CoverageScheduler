@@ -73,7 +73,7 @@ You do **not** need to manually edit `Coverage Staff` for normal use. Open the w
 
 When updating an existing installation, keep the browser and server files in sync. The current manual-placement and field-trip workflow depends on the current versions of `code.gs`, `scheduler.gs`, `index.html`, and `field-trip-ui.gs` being deployed together. The web app now checks a server API version during startup and refuses to run a mixed deployment.
 
-The web UI supports the normal workflow: choose a date, add/edit absences, create/edit/remove coverage staff, toggle daily coverage availability, generate the plan, inspect Timeline/Table/By Sub views, manually reassign blocks, then use **Save & Handout** to save the exact reviewed plan to `Coverage Output` and create the Google Docs handout from those same rows in one operation.
+The web UI supports the normal workflow: choose a date, add/edit absences, create/edit/remove coverage staff, toggle daily coverage availability, generate the plan, inspect Timeline/Table/By Sub views, manually reassign blocks, then use **Save Plan** and **Create Handout** as separate actions. Both actions use the exact reviewed plan currently on screen, including manual reassignments.
 
 Field trips are first-class events rather than ordinary group absences. Use **+ Field Trip** to choose the departure date/time, return date/time, student grade(s), and staff going on the trip. For one-day trips, the start and end dates are the same. Overnight trips remain one event across the full date range. Use **Calendar** to see field trips and ordinary absences together and to reopen an event for editing.
 
@@ -87,7 +87,7 @@ During generation, trip-grade classes are treated as cancelled while those stude
 
 ## Handouts
 
-The web app creates the handout as part of **Save & Handout**. This keeps the saved `Coverage Output` and the handout synchronized, including manual block reassignments made after generation.
+The web app treats **Save Plan** and **Create Handout** as independent actions. **Save Plan** writes the reviewed plan to `Coverage Output`; **Create Handout** builds the Google Doc from the reviewed in-memory plan without saving it first. Manual block reassignments made after generation are therefore preserved in either action.
 
 `handout.gs` creates one landscape page per coverage person with a full-width assignment table. The time column is intentionally wide enough for normal time ranges to stay on one line, while compact cell padding keeps rows short. The table uses the full printable width of the page with larger Subject and Absent Teacher columns for easier scanning.
 
