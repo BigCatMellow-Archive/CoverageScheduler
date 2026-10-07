@@ -812,7 +812,6 @@ function getCoverageBootstrap_(payload) {
     allCoverageStaff: getAllCoverageStaff_(today, dayCode),
     // Date navigation must stay cheap. Field-trip candidate materialization is
     // needed only by Generate/manual reassignment, not to display the day.
-    fieldTripCoverageStaff: [],
     currentAbsences: getDailyAbsencesForDate_(today, dayCode),
     currentFieldTrips: getFieldTripsForDate_(today),
     currentPreview: getLatestPreview_(today, dayCode),
