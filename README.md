@@ -44,7 +44,7 @@ Generating a plan is a preview step. You can review and adjust the result before
 - Generate a coverage plan.
 - View the plan as a timeline, table, or grouped by coverage person.
 - Manually reassign individual blocks when needed.
-- Save the approved plan and create its printable Google Docs handout in one action.
+- Save the approved plan to `Coverage Output` and create the printable Google Docs handout as separate actions.
 
 ## The normal daily workflow
 
@@ -111,15 +111,12 @@ After manual changes, review the affected person's other assignments to make sur
 
 ### 7. Save the final plan and create the handout
 
-When the plan looks right, click **Save & Handout**.
+When the plan looks right, use the two actions independently:
 
-That one action:
+1. Click **Save Plan** to write the exact plan you are looking at to `Coverage Output`.
+2. Click **Create Handout** to build a Google Docs handout from the exact plan currently on screen and open it from the confirmation link.
 
-1. writes the exact plan you are looking at to `Coverage Output`;
-2. creates the Google Docs handout from those same rows;
-3. gives you a link to open the handout.
-
-This means manual reassignments made after generation are preserved in both the saved output and the handout. The handout is organized by coverage person so each person can see where they need to be and when.
+Saving does not create a handout, and creating a handout does not save the plan. Manual reassignments made after generation are still preserved because both actions use the reviewed on-screen plan. The handout is organized by coverage person so each person can see where they need to be and when.
 
 If there are no assigned coverage rows, the plan can still be saved, but there is nothing to include in a coverage-person handout.
 
