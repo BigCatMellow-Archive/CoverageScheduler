@@ -108,12 +108,12 @@ const HEADER_ALIASES = {
 // ── Request-local read cache + lightweight performance tracing ─────────────
 // Spreadsheet service calls dominate Apps Script latency. Keep one canonical
 // copy of each sheet read for the lifetime of a server request, then invalidate
-// it immediately after any write. Teacher Schedule and Config also use a short
-// Script Cache entry; onEdit and every app write invalidate those entries.
+// it immediately after any write. Config also uses a short Script Cache entry;
+// Teacher Schedule deliberately stays request-local so schedule dropdowns and
+// eligibility checks always receive the exact live Sheet values/data types.
 const COVERAGE_PERSISTENT_CACHE_TTL_SECONDS_ = 60;
 const COVERAGE_PERSISTENT_CACHE_MAX_CHARS_ = 85000;
 const COVERAGE_PERSISTENT_CACHE_KEYS_ = {
-  'Teacher Schedule': 'coverage:v1:teacher-schedule',
   'Config': 'coverage:v1:config'
 };
 
@@ -1771,6 +1771,47 @@ function validateCoveragePlanForSave_(date, day, rows) {
   }
 }
 
+function manualCoverageScheduleContext_(candidate, block, teacherSchedule, day) {
+  const rows = normalizedScheduleRowsFor_(teacherSchedule, candidate && candidate.name, day)
+    .filter(row => row.startMinutes != null && row.endMinutes != null)
+    .sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes);
+
+  if (!rows.length) return '';
+
+  const spanning = rows.find(row =>
+    row.startMinutes <= block.startMinutes &&
+    row.endMinutes >= block.endMinutes
+  );
+  const overlapping = spanning || rows.find(row =>
+    row.startMinutes < block.endMinutes &&
+    row.endMinutes > block.startMinutes
+  );
+
+  if (!overlapping) return 'No Teacher Schedule block at this time';
+
+  const activity = overlapping.assignmentType ||
+    overlapping.className ||
+    overlapping.subject ||
+    'Scheduled block';
+  const time = minutesToDisplay_(overlapping.startMinutes) + '–' + minutesToDisplay_(overlapping.endMinutes);
+  const room = overlapping.room ? ' · ' + overlapping.room : '';
+
+  if (overlapping.coverEligibleThisBlock) {
+    return activity + ' ' + time + room;
+  }
+
+  const releasedByTrip = !!(
+    block.fieldTripEventId &&
+    candidateHasFieldTripEvent_(candidate, block.fieldTripEventId) &&
+    isInstructionalGradeBlock_(overlapping)
+  );
+  if (releasedByTrip) {
+    return activity + ' ' + time + room + ' · released by field trip';
+  }
+
+  return activity + ' ' + time + room;
+}
+
 function getManualCoverageChoices_(payload) {
   const context = manualCoverageContext_(payload);
   const row = context.row;
@@ -1817,6 +1858,12 @@ function getManualCoverageChoices_(payload) {
     const scoreInfo = scoreCandidateForBlock_(candidate, absentName, block, context.state);
     const fieldTripBoost = Number(availability.fieldTripPriority || 0) * 250;
     const runwayBoost = Math.min(Math.max(0, Number(availability.fieldTripRunwayMinutes || 0)), 60);
+    const scheduleContext = manualCoverageScheduleContext_(
+      candidate,
+      block,
+      context.teacherSchedule,
+      context.day
+    );
 
     choices.push({
       name: candidate.name,
@@ -1824,6 +1871,7 @@ function getManualCoverageChoices_(payload) {
       tier: candidate.tier,
       source: source,
       recommended: fieldTripPool,
+      scheduleContext: scheduleContext,
       reason: availability.fieldTripReason ||
         (candidate.canCoverAllDay
           ? 'Available as Coverage Staff for the full block.'
