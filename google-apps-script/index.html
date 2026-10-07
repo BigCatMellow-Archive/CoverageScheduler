@@ -317,7 +317,7 @@ async function bootstrap(date){
     setLoading(true);
     const d=date||S.date||'';
     const day=d?dayFromDate(d):'';
-    const data=await gas('webGetBootstrap',{date:d,day});
+    const data=await gas('webGetBootstrap',{date:d,day,includeRoster:!S.allStaff.length});
     const serverVersion=Number(data&&data.webApiVersion||0);
     if(serverVersion!==REQUIRED_WEB_API_VERSION){
       throw new Error(
@@ -331,9 +331,9 @@ async function bootstrap(date){
     S.day=data.day;
     S.scheduleCache={};
     S.schedulePromises={};
-    S.allStaff=data.allStaff||[];
+    if(Array.isArray(data.allStaff))S.allStaff=data.allStaff;
     S.coverage=data.allCoverageStaff||[];
-    S.fieldTripCoverage=data.fieldTripCoverageStaff||[];
+    S.fieldTripCoverage=[];
     S.absences=normalizeAbsences(data.currentAbsences||[]);
     S.fieldTrips=data.currentFieldTrips||[];
     S.plan=(data.currentPreview&&data.currentPreview.rows)||[];

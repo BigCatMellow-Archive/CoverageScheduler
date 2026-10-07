@@ -802,14 +802,16 @@ function getCoverageBootstrap_(payload) {
   ]);
   coveragePerfMark_('snapshot-loaded');
 
+  const includeRoster = payload.includeRoster !== false;
   return {
     today: today,
     day: dayCode,
-    allStaff: typeof getWebStaffRosterSummary_ === 'function'
+    allStaff: includeRoster && typeof getWebStaffRosterSummary_ === 'function'
       ? getWebStaffRosterSummary_()
-      : [],
+      : null,
     allCoverageStaff: getAllCoverageStaff_(today, dayCode),
-    fieldTripCoverageStaff: getFieldTripCoverageStaffForDate_(today, dayCode),
+    // Date navigation must stay cheap. Field-trip candidate materialization is
+    // needed only by Generate/manual reassignment, not to display the day.
     currentAbsences: getDailyAbsencesForDate_(today, dayCode),
     currentFieldTrips: getFieldTripsForDate_(today),
     currentPreview: getLatestPreview_(today, dayCode),
