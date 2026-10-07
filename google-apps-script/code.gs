@@ -2,6 +2,9 @@ const COVERAGE_WEB_API_VERSION = 7;
 
 const APP_TITLE = 'Coverage Scheduler';
 const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
+const COVERAGE_SCHEMA_VERSION_PROPERTY = 'COVERAGE_SCHEMA_VERSION';
+const COVERAGE_SCHEMA_VERSION = '2026-10-07-perf-1';
+let COVERAGE_WEB_READY_THIS_REQUEST_ = false;
 
 function onOpen() {
   rememberCoverageSpreadsheet_();
@@ -15,6 +18,17 @@ function onOpen() {
     .addItem('Create handout doc from latest preview', 'menuCreateHandoutDoc')
     .addItem('Clear Coverage Output', 'clearCoverageOutput')
     .addToUi();
+}
+
+// Manual edits to source/config sheets must be visible immediately even though
+// Teacher Schedule and Config use a short Script Cache entry for speed.
+function onEdit(e) {
+  try {
+    const sheet = e && e.range ? e.range.getSheet() : null;
+    if (sheet) invalidateCoverageSheetCache_(sheet.getName());
+  } catch (error) {
+    // Cache invalidation is best-effort; an edit must never be blocked by it.
+  }
 }
 
 function rememberCoverageSpreadsheet_() {
@@ -34,7 +48,9 @@ function setupCoverageScheduler() {
   }
 
   SpreadsheetApp.setActiveSpreadsheet(ss);
-  return setupCoverageWorkbookFromTeacherSchedule();
+  const result = setupCoverageWorkbookFromTeacherSchedule();
+  markCoverageSchemaReady_();
+  return result;
 }
 
 function doGet() {
@@ -391,26 +407,62 @@ function activateCoverageSpreadsheetForWeb_() {
   return ss;
 }
 
-function ensureCoverageWorkbookReadyForWeb_() {
-  const ss = activateCoverageSpreadsheetForWeb_();
-  const requiredSheets = [
-    'Teacher Schedule',
-    'Coverage Staff',
-    'Substitute Availability',
-    'Daily Absences',
-    'Coverage Output',
-    'Lists',
-    'Config',
-    '_Preview'
-  ];
+function coverageSchemaMarker_(ss) {
+  const workbook = ss || SpreadsheetApp.getActiveSpreadsheet();
+  return COVERAGE_SCHEMA_VERSION + ':' + (workbook ? workbook.getId() : '');
+}
 
-  const missing = requiredSheets.filter(name => !ss.getSheetByName(name));
-  if (missing.length) {
-    setupCoverageWorkbookFromTeacherSchedule();
+function markCoverageSchemaReady_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  PropertiesService.getScriptProperties()
+    .setProperty(COVERAGE_SCHEMA_VERSION_PROPERTY, coverageSchemaMarker_(ss));
+}
+
+function ensureCoverageWorkbookReadyForWeb_() {
+  if (COVERAGE_WEB_READY_THIS_REQUEST_) return SpreadsheetApp.getActiveSpreadsheet();
+
+  const ss = activateCoverageSpreadsheetForWeb_();
+  const properties = PropertiesService.getScriptProperties();
+  const schemaVersion = properties.getProperty(COVERAGE_SCHEMA_VERSION_PROPERTY);
+
+  // Existing installations run the full structural check once after this
+  // optimization is deployed. Normal requests then use the version marker
+  // instead of probing every managed sheet on every click.
+  if (schemaVersion !== coverageSchemaMarker_(ss)) {
+    const requiredSheets = [
+      'Teacher Schedule',
+      'Coverage Staff',
+      'Substitute Availability',
+      'Daily Absences',
+      'Coverage Output',
+      'Lists',
+      'Config',
+      '_Preview'
+    ];
+    const missing = requiredSheets.filter(name => !ss.getSheetByName(name));
+    if (missing.length) setupCoverageWorkbookFromTeacherSchedule();
+    ensureStaffListSheet_();
+    markCoverageSchemaReady_();
+  } else if (!ss.getSheetByName('Teacher Schedule')) {
+    // Fail clearly if the one authoritative source tab was removed after setup.
+    throw new Error('Coverage Scheduler cannot find the Teacher Schedule sheet. Run Coverage Scheduler → Set up workbook.');
   }
 
-  ensureStaffListSheet_();
+  COVERAGE_WEB_READY_THIS_REQUEST_ = true;
   return ss;
+}
+
+function runCoverageWebRequest_(name, fn) {
+  beginCoverageRequest_(name);
+  COVERAGE_WEB_READY_THIS_REQUEST_ = false;
+  try {
+    ensureCoverageWorkbookReadyForWeb_();
+    coveragePerfMark_('workbook-ready');
+    return fn();
+  } finally {
+    endCoverageRequest_();
+    COVERAGE_WEB_READY_THIS_REQUEST_ = false;
+  }
 }
 
 function makeWebSafe_(value) {
@@ -449,70 +501,65 @@ function makeWebSafe_(value) {
 }
 
 function webGetBootstrap(payload) {
-  ensureCoverageWorkbookReadyForWeb_();
-  const data = getCoverageBootstrap_(payload || {});
-  if (!data) {
-    throw new Error('Coverage Scheduler could not build its startup data.');
-  }
+  return runCoverageWebRequest_('webGetBootstrap', () => {
+    const data = getCoverageBootstrap_(payload || {});
+    if (!data) throw new Error('Coverage Scheduler could not build its startup data.');
 
-  const safe = makeWebSafe_(data);
-  if (!safe || !safe.today) {
-    throw new Error('Coverage Scheduler startup data was invalid before it reached the browser.');
-  }
+    coveragePerfMark_('bootstrap-built');
+    const safe = makeWebSafe_(data);
+    if (!safe || !safe.today) {
+      throw new Error('Coverage Scheduler startup data was invalid before it reached the browser.');
+    }
 
-  safe.webApiVersion = COVERAGE_WEB_API_VERSION;
-  safe.webCapabilities = {
-    manualCoveragePlacement: true,
-    unifiedFieldTripPlan: true,
-    fieldTripContinuityScheduling: true
-  };
-
-  return safe;
+    safe.webApiVersion = COVERAGE_WEB_API_VERSION;
+    safe.webCapabilities = {
+      manualCoveragePlacement: true,
+      unifiedFieldTripPlan: true,
+      fieldTripContinuityScheduling: true
+    };
+    return safe;
+  });
 }
 
 function webSaveFieldTrip(payload) {
-  ensureCoverageWorkbookReadyForWeb_();
-  return makeWebSafe_(saveFieldTrip_(payload || {}));
+  return runCoverageWebRequest_('webSaveFieldTrip', () => makeWebSafe_(saveFieldTrip_(payload || {})));
 }
 
 function webDeleteFieldTrip(payload) {
-  ensureCoverageWorkbookReadyForWeb_();
-  payload = payload || {};
-  return makeWebSafe_(deleteFieldTrip_(payload.eventId));
+  return runCoverageWebRequest_('webDeleteFieldTrip', () => {
+    payload = payload || {};
+    return makeWebSafe_(deleteFieldTrip_(payload.eventId));
+  });
 }
 
 function webGetCalendarData(payload) {
-  ensureCoverageWorkbookReadyForWeb_();
-  payload = payload || {};
-  const startDate = normalizeDateKey_(payload.startDate);
-  const endDate = normalizeDateKey_(payload.endDate || payload.startDate);
+  return runCoverageWebRequest_('webGetCalendarData', () => {
+    payload = payload || {};
+    const startDate = normalizeDateKey_(payload.startDate);
+    const endDate = normalizeDateKey_(payload.endDate || payload.startDate);
 
-  if (!startDate || !endDate) throw new Error('Calendar requires a valid date range.');
-  if (endDate < startDate) throw new Error('Calendar end date must be after its start date.');
+    if (!startDate || !endDate) throw new Error('Calendar requires a valid date range.');
+    if (endDate < startDate) throw new Error('Calendar end date must be after its start date.');
 
-  const fieldTrips = getFieldTripsInRange_(startDate, endDate);
-  const absences = readSheetObjects_('Daily Absences')
-    .map(row => ({
-      date: normalizeDateKey_(row.Date),
-      staffName: String(row.Staff_Name || '').trim(),
-      absenceType: String(row.Absence_Type || 'Full Day').trim(),
-      start: timeToDisplay_(row.Start_Override),
-      end: timeToDisplay_(row.End_Override),
-      notes: String(row.Notes || '').trim()
-    }))
-    .filter(row => row.date && row.date >= startDate && row.date <= endDate && row.staffName);
+    primeCoverageRequestSnapshot_(['Field Trips', 'Daily Absences']);
+    const fieldTrips = getFieldTripsInRange_(startDate, endDate);
+    const absences = readSheetObjects_('Daily Absences')
+      .map(row => ({
+        date: normalizeDateKey_(row.Date),
+        staffName: String(row.Staff_Name || '').trim(),
+        absenceType: String(row.Absence_Type || 'Full Day').trim(),
+        start: timeToDisplay_(row.Start_Override),
+        end: timeToDisplay_(row.End_Override),
+        notes: String(row.Notes || '').trim()
+      }))
+      .filter(row => row.date && row.date >= startDate && row.date <= endDate && row.staffName);
 
-  return makeWebSafe_({
-    startDate: startDate,
-    endDate: endDate,
-    fieldTrips: fieldTrips,
-    absences: absences
+    return makeWebSafe_({ startDate: startDate, endDate: endDate, fieldTrips: fieldTrips, absences: absences });
   });
 }
 
 function webSaveAbsences(payload) {
-  ensureCoverageWorkbookReadyForWeb_();
-  return replaceDailyAbsences(payload || {});
+  return runCoverageWebRequest_('webSaveAbsences', () => replaceDailyAbsences(payload || {}));
 }
 
 function parseAbsenceRangeDate_(value) {
@@ -528,12 +575,12 @@ function parseAbsenceRangeDate_(value) {
 }
 
 function webSaveAbsenceRange(payload) {
-  ensureCoverageWorkbookReadyForWeb_();
-  return withCoverageLock_(() => webSaveAbsenceRangeUnlocked_(payload));
+  return runCoverageWebRequest_('webSaveAbsenceRange', () =>
+    withCoverageLock_(() => webSaveAbsenceRangeUnlocked_(payload))
+  );
 }
 
 function webSaveAbsenceRangeUnlocked_(payload) {
-  ensureCoverageWorkbookReadyForWeb_();
   payload = payload || {};
 
   const start = parseAbsenceRangeDate_(payload.startDate);
@@ -546,12 +593,12 @@ function webSaveAbsenceRangeUnlocked_(payload) {
   if (!staffName) throw new Error('Choose a staff member.');
 
   const calendarDays = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
-  if (calendarDays > 63) {
-    throw new Error('Please keep one absence entry to 63 calendar days or fewer.');
-  }
+  if (calendarDays > 63) throw new Error('Please keep one absence entry to 63 calendar days or fewer.');
 
   const timeZone = coverageTimeZone_();
   const savedDates = [];
+  const rows = readSheetObjects_('Daily Absences').slice();
+  let changed = false;
   const cursor = new Date(start.getTime());
 
   while (cursor <= end) {
@@ -560,16 +607,31 @@ function webSaveAbsenceRangeUnlocked_(payload) {
       const dateKey = Utilities.formatDate(cursor, timeZone, 'yyyy-MM-dd');
       const day = guessDayCodeFromDate_(dateKey);
       if (day) {
-        // This entry point only ever creates a new absence window (the
-        // browser routes edits of an existing entry through
-        // webSaveAbsences/replaceDailyAbsences with the full edited list
-        // instead), so it must add alongside any existing windows for this
-        // person on this date rather than replacing them.
-        const current = getDailyAbsencesForDate_(dateKey, day) || [];
-        // A double-click or retry must not store the same window twice.
-        if (!current.some(existing => sameAbsenceWindow_(existing, absence))) {
-          current.push(absence);
-          replaceDailyAbsences({ date: dateKey, day: day, absences: current });
+        const duplicate = rows.some(row => {
+          if (normalizeDateKey_(row.Date) !== dateKey || String(row.Day || '').trim() !== day) return false;
+          return sameAbsenceWindow_({
+            staffName: String(row.Staff_Name || '').trim(),
+            absenceType: String(row.Absence_Type || 'Full Day').trim(),
+            startOverride: timeToDisplay_(row.Start_Override),
+            endOverride: timeToDisplay_(row.End_Override),
+            emergency: isEmergencyAbsence_(row)
+          }, absence);
+        });
+
+        if (!duplicate) {
+          const allDay = normalizeYesNo_(absence.allDay, false);
+          const emergency = normalizeYesNo_(absence.emergency, false);
+          rows.push({
+            Date: dateKey,
+            Day: day,
+            Staff_Name: staffName,
+            Absence_Type: allDay ? 'Full Day' : 'Partial Day',
+            Start_Override: allDay ? '' : String(absence.startOverride || '').trim(),
+            End_Override: allDay ? '' : String(absence.endOverride || '').trim(),
+            Notes: composeAbsenceNotes_(emergency, absence.notes),
+            Preferred_Coverage: String(absence.preferredCoverage || '').trim()
+          });
+          changed = true;
         }
         savedDates.push(dateKey);
       }
@@ -577,9 +639,13 @@ function webSaveAbsenceRangeUnlocked_(payload) {
     cursor.setDate(cursor.getDate() + 1);
   }
 
-  if (!savedDates.length) {
-    throw new Error('That range does not contain a Monday–Friday school day.');
+  if (!savedDates.length) throw new Error('That range does not contain a Monday–Friday school day.');
+
+  if (changed) {
+    rewriteSheetRows_('Daily Absences', SHEET_SCHEMAS['Daily Absences'].headers, rows);
+    invalidatePreviewForDateRange_(savedDates[0], savedDates[savedDates.length - 1]);
   }
+  coveragePerfMark_('absence-range-written');
 
   const currentDate = String(payload.currentDate || '').trim();
   const currentDateUpdated = savedDates.indexOf(currentDate) !== -1;
@@ -594,105 +660,91 @@ function webSaveAbsenceRangeUnlocked_(payload) {
 }
 
 function webGenerateCoverage(payload) {
-  ensureCoverageWorkbookReadyForWeb_();
-  return generateCoveragePreview(payload || {});
+  return runCoverageWebRequest_('webGenerateCoverage', () => generateCoveragePreview(payload || {}));
 }
 
 function webGetManualCoverageChoices(payload) {
-  ensureCoverageWorkbookReadyForWeb_();
-  return makeWebSafe_(getManualCoverageChoices_(payload || {}));
+  return runCoverageWebRequest_('webGetManualCoverageChoices', () =>
+    makeWebSafe_(getManualCoverageChoices_(payload || {}))
+  );
 }
 
 function webValidateManualCoverageAssignment(payload) {
-  ensureCoverageWorkbookReadyForWeb_();
-  return makeWebSafe_(validateManualCoverageAssignment_(payload || {}));
+  return runCoverageWebRequest_('webValidateManualCoverageAssignment', () =>
+    makeWebSafe_(validateManualCoverageAssignment_(payload || {}))
+  );
 }
 
 function webToggleCoverageStaff(payload) {
-  ensureCoverageWorkbookReadyForWeb_();
-  return toggleCoverageStaffActive(payload || {});
+  return runCoverageWebRequest_('webToggleCoverageStaff', () => toggleCoverageStaffActive(payload || {}));
 }
 
 function webSaveCoverageStaff(payload) {
-  ensureCoverageWorkbookReadyForWeb_();
-  return saveCoverageStaffFromWeb_(payload || {});
+  return runCoverageWebRequest_('webSaveCoverageStaff', () => saveCoverageStaffFromWeb_(payload || {}));
 }
 
 function webDeleteCoverageStaff(payload) {
-  ensureCoverageWorkbookReadyForWeb_();
-  return deleteCoverageStaffFromWeb_(payload || {});
+  return runCoverageWebRequest_('webDeleteCoverageStaff', () => deleteCoverageStaffFromWeb_(payload || {}));
 }
 
 function webSaveCoverage(rows) {
-  ensureCoverageWorkbookReadyForWeb_();
-  return saveCoveragePlan({ rows: rows || [] });
+  return runCoverageWebRequest_('webSaveCoverage', () => saveCoveragePlan({ rows: rows || [] }));
 }
 
 function webSaveCoverageAndCreateHandout(rows) {
-  ensureCoverageWorkbookReadyForWeb_();
+  return runCoverageWebRequest_('webSaveCoverageAndCreateHandout', () => {
+    const planRows = rows || [];
+    const saveResult = saveCoveragePlan({ rows: planRows });
+    const assignedRows = planRows.filter(row =>
+      String(row.Status || '').trim() === 'Assigned' &&
+      String(row.Assigned_Coverage || '').trim()
+    );
 
-  const planRows = rows || [];
-  const saveResult = saveCoveragePlan({ rows: planRows });
-  const assignedRows = planRows.filter(row =>
-    String(row.Status || '').trim() === 'Assigned' &&
-    String(row.Assigned_Coverage || '').trim()
-  );
-
-  let handout = null;
-  let handoutError = '';
-
-  if (assignedRows.length) {
-    try {
-      handout = createCoverageHandoutPackage_(assignedRows, saveResult.date, saveResult.day);
-    } catch (error) {
-      handoutError = error && error.message ? error.message : String(error || 'Unknown handout error');
+    let handout = null;
+    let handoutError = '';
+    if (assignedRows.length) {
+      try {
+        handout = createCoverageHandoutPackage_(assignedRows, saveResult.date, saveResult.day);
+      } catch (error) {
+        handoutError = error && error.message ? error.message : String(error || 'Unknown handout error');
+      }
     }
-  }
 
-  return makeWebSafe_({
-    date: saveResult.date,
-    day: saveResult.day,
-    savedRows: saveResult.savedRows,
-    handout: handout,
-    handoutError: handoutError
+    return makeWebSafe_({
+      date: saveResult.date,
+      day: saveResult.day,
+      savedRows: saveResult.savedRows,
+      handout: handout,
+      handoutError: handoutError
+    });
   });
 }
 
 function webCreateHandout() {
-  ensureCoverageWorkbookReadyForWeb_();
-  return createCoverageHandoutDocWideFromLatestPreview_();
+  return runCoverageWebRequest_('webCreateHandout', () => createCoverageHandoutDocWideFromLatestPreview_());
 }
 
 function webCreateHandoutFromRows(rows) {
-  ensureCoverageWorkbookReadyForWeb_();
+  return runCoverageWebRequest_('webCreateHandoutFromRows', () => {
+    const planRows = rows || [];
+    const assignedRows = planRows.filter(row =>
+      String(row.Status || '').trim() === 'Assigned' &&
+      String(row.Assigned_Coverage || '').trim()
+    );
+    if (!assignedRows.length) throw new Error('No assigned coverage rows are available for a handout.');
 
-  const planRows = rows || [];
-  const assignedRows = planRows.filter(row =>
-    String(row.Status || '').trim() === 'Assigned' &&
-    String(row.Assigned_Coverage || '').trim()
-  );
-
-  if (!assignedRows.length) {
-    throw new Error('No assigned coverage rows are available for a handout.');
-  }
-
-  const date = normalizeDateKey_(assignedRows[0].Date);
-  const day = String(assignedRows[0].Day || guessDayCodeFromDate_(date) || '').trim();
-
-  if (!date || !day) {
-    throw new Error('The reviewed plan does not have a valid date.');
-  }
-
-  if (assignedRows.some(row => normalizeDateKey_(row.Date) !== date)) {
-    throw new Error('A handout can only be created for one date at a time.');
-  }
-
-  return makeWebSafe_(createCoverageHandoutPackage_(assignedRows, date, day));
+    const date = normalizeDateKey_(assignedRows[0].Date);
+    const day = String(assignedRows[0].Day || guessDayCodeFromDate_(date) || '').trim();
+    if (!date || !day) throw new Error('The reviewed plan does not have a valid date.');
+    if (assignedRows.some(row => normalizeDateKey_(row.Date) !== date)) {
+      throw new Error('A handout can only be created for one date at a time.');
+    }
+    return makeWebSafe_(createCoverageHandoutPackage_(assignedRows, date, day));
+  });
 }
 
 function webValidateTeacherSchedule() {
-  ensureCoverageWorkbookReadyForWeb_();
-  return validateTeacherScheduleSource_();
+  return runCoverageWebRequest_('webValidateTeacherSchedule', () => validateTeacherScheduleSource_());
 }
 
 function generateCoveragePreviewFromPrompt() {
@@ -720,6 +772,17 @@ function getCoverageBootstrap_(payload) {
   payload = payload || {};
   const today = payload.date || Utilities.formatDate(new Date(), coverageTimeZone_(), 'yyyy-MM-dd');
   const dayCode = payload.day || guessDayCodeFromDate_(today);
+
+  primeCoverageRequestSnapshot_([
+    'Teacher Schedule',
+    getCoverageStaffSheetName_(),
+    'Substitute Availability',
+    'Daily Absences',
+    'Field Trips',
+    '_Preview',
+    'Config'
+  ]);
+  coveragePerfMark_('snapshot-loaded');
 
   return {
     today: today,
