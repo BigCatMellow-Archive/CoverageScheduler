@@ -145,8 +145,8 @@
 <div id="blockModal" class="overlay hidden"><div class="modal modal-sm"><div class="m-hd"><h2>Reassign Block</h2><button class="m-x" data-close="blockModal">×</button></div><div class="m-body"><div id="blockInfo" class="block-info"></div><div class="fg"><label class="fl">Assign Coverage To</label><select id="blockCoverage" class="fs"></select><div id="blockCoverageSchedule"></div><div id="blockCoverageHint" class="hint">Only staff who are actually available for this exact block will appear.</div></div></div><div class="m-ft"><div class="sp-r"></div><button class="btn-cancel" data-close="blockModal">Cancel</button><button id="saveBlockBtn" class="btn-save">Save Assignment</button></div></div></div>
 
 <script>
-const REQUIRED_WEB_API_VERSION=7;
-const S={date:'',day:'',allStaff:[],coverage:[],fieldTripCoverage:[],absences:[],fieldTrips:[],plan:[],view:'timeline',generating:false,editingAbsence:null,editingAbsenceIndex:null,editingCoverage:null,editingBlock:null,pendingDelete:null};
+const REQUIRED_WEB_API_VERSION=8;
+const S={date:'',day:'',allStaff:[],coverage:[],fieldTripCoverage:[],absences:[],fieldTrips:[],plan:[],view:'timeline',generating:false,editingAbsence:null,editingAbsenceIndex:null,editingCoverage:null,editingBlock:null,pendingDelete:null,scheduleCache:{},schedulePromises:{}};
 const $=id=>document.getElementById(id);
 const DAY_NAMES={M:'Monday',T:'Tuesday',W:'Wednesday',R:'Thursday',F:'Friday'};
 const esc=value=>String(value==null?'':value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -174,6 +174,31 @@ function fail(err){console.error(err);flash(err.message||String(err),'err')}
 function timeDisplay(v){if(!v)return'';const m=String(v).match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i);if(!m)return String(v);let h=+m[1],min=m[2],p=(m[3]||'').toUpperCase();if(!p){p=h>=12?'PM':'AM';h=h%12||12}return h+':'+min+' '+p}
 function timeInput(v){if(!v)return'';const m=String(v).match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);if(!m)return String(v).slice(0,5);let h=+m[1];if(m[3].toUpperCase()==='PM'&&h<12)h+=12;if(m[3].toUpperCase()==='AM'&&h===12)h=0;return String(h).padStart(2,'0')+':'+m[2]}
 function rosterMatch(staffName){return S.allStaff.find(x=>x.scheduleName===staffName||x.name===staffName)||null}
+function scheduleKey(name){return String(name||'').trim().toLowerCase()}
+function scheduleRecord(staffName){
+  return S.scheduleCache[scheduleKey(staffName)]||rosterMatch(staffName)||null;
+}
+async function ensureStaffScheduleLoaded(staffName){
+  const name=String(staffName||'').trim();
+  if(!name)return null;
+  const key=scheduleKey(name);
+  const cached=S.scheduleCache[key];
+  if(cached&&cached.scheduleLoaded)return cached;
+  if(S.schedulePromises[key])return S.schedulePromises[key];
+
+  const requestedDate=S.date;
+  S.schedulePromises[key]=gas('webGetStaffSchedule',{staffName:name,date:S.date,day:S.day})
+    .then(data=>{
+      if(requestedDate!==S.date)return null;
+      const record=Object.assign({name:name,displayName:name,scheduleName:name,role:'Teacher',subject:'',blocks:[],scheduleMatched:false,scheduleLoaded:true},data||{});
+      S.scheduleCache[key]=record;
+      const roster=rosterMatch(name);
+      if(roster)Object.assign(roster,record);
+      return record;
+    })
+    .finally(()=>{delete S.schedulePromises[key]});
+  return S.schedulePromises[key];
+}
 function coverageChoices(){const seen={};return S.coverage.concat(S.fieldTripCoverage||[]).filter(c=>{if(!c||!c.name||seen[c.name])return false;seen[c.name]=true;return true})}
 function coverageMatch(name){return coverageChoices().find(x=>x.name===name)||null}
 
@@ -183,7 +208,7 @@ function fillTimeSelect(select,values,includeBlank){
   select.innerHTML=options.map(value=>'<option value="'+esc(value)+'">'+esc(value||'No limit')+'</option>').join('');
 }
 function timeOptionsForStaff(staffName){
-  const staff=rosterMatch(staffName)||{};
+  const staff=scheduleRecord(staffName)||{};
   const blocks=(staff.blocks||[]).filter(block=>block.start&&block.end).slice().sort((a,b)=>mins(a.start)-mins(b.start));
   const starts=uniqueSortedTimes(blocks.map(block=>block.start));
   const ends=uniqueSortedTimes(blocks.map(block=>block.end));
@@ -222,8 +247,8 @@ function miniScheduleClass(block){
   return'';
 }
 function miniScheduleHtml(staffName,windowStart,windowEnd){
-  const staff=rosterMatch(staffName);
-  if(!staff)return'<div class="mini-schedule"><div class="mini-schedule-empty">No Teacher Schedule rows for this person.</div></div>';
+  const staff=scheduleRecord(staffName);
+  if(!staff||!staff.scheduleLoaded)return'<div class="mini-schedule"><div class="mini-schedule-empty">Loading schedule…</div></div>';
   const blocks=(staff.blocks||[]).filter(b=>b.start&&b.end).slice().sort((a,b)=>mins(a.start)-mins(b.start));
   if(!blocks.length)return'<div class="mini-schedule"><div class="mini-schedule-empty">No schedule blocks for '+esc(DAY_NAMES[S.day]||'the selected day')+'.</div></div>';
 
@@ -269,11 +294,14 @@ function renderAbsenceScheduleBar(){
     $('absenceTypes').dataset.selected==='Partial Day'?$('absenceEnd').value:''
   );
 }
-function renderCoverageChoiceSchedule(){
+async function renderCoverageChoiceSchedule(){
   const target=$('blockCoverageSchedule');
   if(!target)return;
   const name=$('blockCoverage').value;
   if(!name){target.innerHTML='';return}
+  target.innerHTML='<div class="mini-schedule"><div class="mini-schedule-empty">Loading schedule…</div></div>';
+  try{await ensureStaffScheduleLoaded(name)}catch(e){target.innerHTML='<div class="mini-schedule"><div class="mini-schedule-empty">Schedule could not be loaded.</div></div>';return}
+  if($('blockCoverage').value!==name)return;
   const row=S.editingBlock!=null?S.plan[S.editingBlock]:null;
   target.innerHTML=miniScheduleHtml(name,row&&row.Start,row&&row.End);
 }
@@ -316,6 +344,8 @@ async function bootstrap(date){
     }
     S.date=data.today;
     S.day=data.day;
+    S.scheduleCache={};
+    S.schedulePromises={};
     S.allStaff=data.allStaff||[];
     S.coverage=data.allCoverageStaff||[];
     S.fieldTripCoverage=data.fieldTripCoverageStaff||[];
@@ -338,7 +368,7 @@ function renderAll(){renderDay();renderAbsences();renderCoverage();renderPlan();
 function renderDay(){$('dayTag').textContent=S.day?(S.day+' · '+(DAY_NAMES[S.day]||'')):'—'}
 function renderStats(){const assigned=S.plan.filter(r=>r.Status==='Assigned').length,unfilled=S.plan.filter(r=>r.Status!=='Assigned').length;$('absentCount').textContent=S.absences.length;$('absPanelCount').textContent=S.absences.length;$('assignedCount').textContent=assigned;$('unfilledCount').textContent=unfilled;$('blocksCount').textContent=S.plan.length;['assignedStat','blocksStat'].forEach(id=>$(id).classList.toggle('hidden',!S.plan.length));$('unfilledStat').classList.toggle('hidden',!S.plan.length||!unfilled);$('savePlanBtn').classList.toggle('hidden',!S.plan.length);$('handoutBtn').classList.toggle('hidden',!assigned);$('viewTabs').classList.toggle('hidden',!S.plan.length);$('planCounts').classList.toggle('hidden',!S.plan.length);$('planAssigned').textContent=assigned+' assigned';$('planUnfilled').textContent=unfilled?unfilled+' unfilled':'';$('generateBtn').disabled=S.generating||(!S.absences.length&&!S.fieldTrips.length);$('generateBtn').textContent=S.generating?'Generating…':(S.plan.length?'Re-generate':'Generate Plan')}
 
-function renderAbsences(){const q=$('absenceSearch').value.trim().toLowerCase();const rows=S.absences.map((a,i)=>({a,i})).filter(({a})=>{const r=rosterMatch(a.staffName),name=(r?r.name:a.staffName).toLowerCase(),sub=(r&&r.subject||'').toLowerCase();return !q||name.includes(q)||sub.includes(q)});if(!rows.length){$('absenceList').innerHTML='<div class="empty-list">'+(S.absences.length?'No matching absences.':'No one is marked absent yet.<br>Use <strong>+ Add Absence</strong> below.')+'</div>';return}$('absenceList').innerHTML=rows.map(({a,i})=>{const r=rosterMatch(a.staffName),display=r?r.name:a.staffName,blocks=r?(r.blocks||[]).filter(b=>b.needsCoverageIfAbsent).length:0,type=a.emergency?'Emergency':a.absenceType,cls=a.emergency?'ab-emergency':type==='Partial Day'?'ab-partial':'ab-full',range=type==='Partial Day'&&a.startOverride&&a.endOverride?' '+esc(timeDisplay(a.startOverride))+'–'+esc(timeDisplay(a.endOverride)):'';return '<div class="abs-row"><div class="abs-info"><div class="abs-name">'+esc(display)+'</div><div class="abs-subj">'+esc(r&&r.subject?r.subject:'')+'</div>'+'<span class="abs-badge '+cls+'">'+esc(type)+'</span>'+range+'<div class="abs-blocks">'+blocks+' scheduled block'+(blocks===1?'':'s')+' may need coverage</div></div><button class="link-btn" data-edit-absence="'+i+'">Edit</button></div>'}).join('')}
+function renderAbsences(){const q=$('absenceSearch').value.trim().toLowerCase();const rows=S.absences.map((a,i)=>({a,i})).filter(({a})=>{const r=rosterMatch(a.staffName),name=(r?r.name:a.staffName).toLowerCase(),sub=(r&&r.subject||'').toLowerCase();return !q||name.includes(q)||sub.includes(q)});if(!rows.length){$('absenceList').innerHTML='<div class="empty-list">'+(S.absences.length?'No matching absences.':'No one is marked absent yet.<br>Use <strong>+ Add Absence</strong> below.')+'</div>';return}$('absenceList').innerHTML=rows.map(({a,i})=>{const r=rosterMatch(a.staffName),display=r?r.name:a.staffName,type=a.emergency?'Emergency':a.absenceType,cls=a.emergency?'ab-emergency':type==='Partial Day'?'ab-partial':'ab-full',range=type==='Partial Day'&&a.startOverride&&a.endOverride?' '+esc(timeDisplay(a.startOverride))+'–'+esc(timeDisplay(a.endOverride)):'';return '<div class="abs-row"><div class="abs-info"><div class="abs-name">'+esc(display)+'</div><div class="abs-subj">'+esc(r&&r.subject?r.subject:'')+'</div><span class="abs-badge '+cls+'">'+esc(type)+'</span>'+range+'</div><button class="link-btn" data-edit-absence="'+i+'">Edit</button></div>'}).join('')}
 
 function renderCoverage(){const q=$('coverageSearch').value.trim().toLowerCase();const rows=S.coverage.filter(c=>!q||c.name.toLowerCase().includes(q)||String(c.role||'').toLowerCase().includes(q));const active=S.coverage.filter(c=>c.activeToday).length;$('coverageCount').textContent=active+'/'+S.coverage.length;if(!rows.length){$('coverageList').innerHTML='<div class="empty-list">'+(S.coverage.length?'No matching coverage staff.':'No coverage staff yet.<br>Click <strong>+ Coverage Staff</strong> above to add the first person.')+'</div>';return}const counts={};S.plan.filter(r=>r.Status==='Assigned'&&r.Assigned_Coverage).forEach(r=>counts[r.Assigned_Coverage]=(counts[r.Assigned_Coverage]||0)+1);$('coverageList').innerHTML=rows.map(c=>{const avail=c.activeToday?(c.allDay?'All day':((c.selectedStart||c.defaultStart||'')+(c.selectedEnd||c.defaultEnd?' – '+(c.selectedEnd||c.defaultEnd):''))):'Not available today';return '<div class="staff-row '+(c.activeToday?'':'off')+'"><label class="tog" title="Available on selected date"><input type="checkbox" data-toggle-coverage="'+esc(c.name)+'" '+(c.activeToday?'checked':'')+'><span class="tog-sl"></span></label><div class="staff-info"><div class="staff-name-row"><span class="staff-name">'+esc(c.name)+'</span><span class="tier t'+esc(c.tier||3)+'">T'+esc(c.tier||3)+'</span></div><div class="staff-avail">'+esc(c.role||'Coverage')+' · '+esc(avail)+'</div>'+(counts[c.name]?'<div class="staff-assigned">'+counts[c.name]+' block'+(counts[c.name]===1?'':'s')+' assigned</div>':'')+'</div><button class="link-btn" data-edit-coverage="'+esc(c.name)+'">Edit</button></div>'}).join('')}
 
@@ -498,12 +528,12 @@ function renderBySub(){
   $('planBody').innerHTML=sections.map(section=>renderBySubSection(section,showRegular)).join('');
 }
 
-function populateAbsenceStaff(){const sel=$('absenceStaff');sel.innerHTML=S.allStaff.map(s=>'<option value="'+esc(s.scheduleName)+'">'+esc(s.name+(s.subject?' — '+s.subject:''))+'</option>').join('');updateAbsenceScheduleControls(false)}
-function updateAbsenceScheduleHint(){const r=rosterMatch($('absenceStaff').value);if(!r){$('absenceScheduleHint').innerHTML='';return}const count=(r.blocks||[]).length;$('absenceScheduleHint').innerHTML=r.scheduleMatched?('Times come from this teacher\'s schedule for '+esc(DAY_NAMES[S.day]||'the selected day')+'. '+count+' block'+(count===1?'':'s')+' found.'+currentOrNextScheduleCue(r.scheduleName||r.name)):('This name is in Staff List but no matching Teacher Schedule rows were found for '+esc(DAY_NAMES[S.day]||'this day')+'.')}
-function updateAbsenceScheduleControls(preserve){populateAbsenceTimeOptions(!!preserve);renderAbsenceScheduleBar();updateAbsenceScheduleHint()}
+function populateAbsenceStaff(){const sel=$('absenceStaff');sel.innerHTML=S.allStaff.map(s=>'<option value="'+esc(s.scheduleName)+'">'+esc(s.name+(s.subject?' — '+s.subject:''))+'</option>').join('')}
+function updateAbsenceScheduleHint(){const r=scheduleRecord($('absenceStaff').value);if(!r||!r.scheduleLoaded){$('absenceScheduleHint').textContent='Loading this teacher\'s schedule…';return}const count=(r.blocks||[]).length;$('absenceScheduleHint').textContent=r.scheduleMatched?('Times come from this teacher\'s schedule for '+(DAY_NAMES[S.day]||'the selected day')+'. '+count+' block'+(count===1?'':'s')+' found.'):('No matching Teacher Schedule rows were found for '+(DAY_NAMES[S.day]||'this day')+'.')}
+async function updateAbsenceScheduleControls(preserve){const name=$('absenceStaff').value;$('absenceScheduleBar').innerHTML='<div class="mini-schedule"><div class="mini-schedule-empty">Loading schedule…</div></div>';updateAbsenceScheduleHint();try{await ensureStaffScheduleLoaded(name)}catch(e){fail(e)}if($('absenceStaff').value!==name)return;populateAbsenceTimeOptions(!!preserve);renderAbsenceScheduleBar();updateAbsenceScheduleHint()}
 function populatePreferredCoverage(){const active=S.coverage.filter(c=>c.activeToday);const current=$('preferredCoverage').value;$('preferredCoverage').innerHTML='<option value="">Auto-assign</option>'+active.map(c=>'<option value="'+esc(c.name)+'">'+esc(c.name+' (Tier '+c.tier+')')+'</option>').join('');$('preferredCoverage').value=current}
-function openAbsence(index){populateAbsenceStaff();const hasIndex=index!=null&&index!=='';const a=hasIndex?S.absences[index]:null;S.editingAbsence=a?Object.assign({},a):null;S.editingAbsenceIndex=a?Number(index):null;$('absenceModalTitle').textContent=a?'Edit Absence':'Add Absence';$('removeAbsenceBtn').classList.toggle('hidden',!a);$('absenceStaff').disabled=!!a;$('absenceStaff').value=a?a.staffName:(S.allStaff[0]?S.allStaff[0].scheduleName:'');updateAbsenceScheduleControls(false);const type=a?(a.emergency?'Emergency':a.absenceType):'Full Day';setAbsenceType(type);if(a&&a.startOverride&&[...$('absenceStart').options].some(o=>o.value===timeDisplay(a.startOverride)))$('absenceStart').value=timeDisplay(a.startOverride);if(a&&a.endOverride&&[...$('absenceEnd').options].some(o=>o.value===timeDisplay(a.endOverride)))$('absenceEnd').value=timeDisplay(a.endOverride);renderAbsenceScheduleBar();$('preferredCoverage').value=a?a.preferredCoverage:'';$('absenceNotes').value=a?a.notes:'';showModal('absenceModal')}
-function setAbsenceType(type){document.querySelectorAll('#absenceTypes .t-opt').forEach(b=>b.classList.toggle('sel',b.dataset.type===type));$('partialTimes').classList.toggle('hidden',type!=='Partial Day');$('absenceTypes').dataset.selected=type;if(type==='Partial Day')populateAbsenceTimeOptions(true);renderAbsenceScheduleBar()}
+async function openAbsence(index){populateAbsenceStaff();const hasIndex=index!=null&&index!=='';const a=hasIndex?S.absences[index]:null;S.editingAbsence=a?Object.assign({},a):null;S.editingAbsenceIndex=a?Number(index):null;$('absenceModalTitle').textContent=a?'Edit Absence':'Add Absence';$('removeAbsenceBtn').classList.toggle('hidden',!a);$('absenceStaff').disabled=!!a;$('absenceStaff').value=a?a.staffName:(S.allStaff[0]?S.allStaff[0].scheduleName:'');const type=a?(a.emergency?'Emergency':a.absenceType):'Full Day';document.querySelectorAll('#absenceTypes .t-opt').forEach(b=>b.classList.toggle('sel',b.dataset.type===type));$('partialTimes').classList.toggle('hidden',type!=='Partial Day');$('absenceTypes').dataset.selected=type;$('preferredCoverage').value=a?a.preferredCoverage:'';$('absenceNotes').value=a?a.notes:'';showModal('absenceModal');await updateAbsenceScheduleControls(false);if(a&&a.startOverride&&[...$('absenceStart').options].some(o=>o.value===timeDisplay(a.startOverride)))$('absenceStart').value=timeDisplay(a.startOverride);if(a&&a.endOverride&&[...$('absenceEnd').options].some(o=>o.value===timeDisplay(a.endOverride)))$('absenceEnd').value=timeDisplay(a.endOverride);renderAbsenceScheduleBar()}
+function setAbsenceType(type){document.querySelectorAll('#absenceTypes .t-opt').forEach(b=>b.classList.toggle('sel',b.dataset.type===type));$('partialTimes').classList.toggle('hidden',type!=='Partial Day');$('absenceTypes').dataset.selected=type;if(type==='Partial Day')updateAbsenceScheduleControls(true);else renderAbsenceScheduleBar()}
 async function saveAbsence(){const staffName=$('absenceStaff').value;if(!staffName){flash('Choose a staff member.','warn');return}const type=$('absenceTypes').dataset.selected||'Full Day';const next={staffName,absenceType:type==='Emergency'?'Full Day':type,allDay:type!=='Partial Day',emergency:type==='Emergency',startOverride:type==='Partial Day'?$('absenceStart').value.trim():'',endOverride:type==='Partial Day'?$('absenceEnd').value.trim():'',preferredCoverage:$('preferredCoverage').value,notes:$('absenceNotes').value.trim()};if(type==='Partial Day'&&(!next.startOverride||!next.endOverride)){flash('Enter both a start and end time for a partial-day absence.','warn');return}const list=S.absences.slice();if(S.editingAbsenceIndex!=null&&list[S.editingAbsenceIndex]){list[S.editingAbsenceIndex]=next}else{list.push(next)}await persistAbsences(list);closeModal('absenceModal')}
 async function removeAbsence(){if(S.editingAbsenceIndex==null)return;await persistAbsences(S.absences.filter((a,i)=>i!==S.editingAbsenceIndex));closeModal('absenceModal')}
 async function persistAbsences(list){try{const result=await gas('webSaveAbsences',{date:S.date,day:S.day,absences:list});S.absences=normalizeAbsences(result||[]);S.plan=[];renderAll();flash('Absences saved.')}catch(e){fail(e)}}
@@ -568,7 +598,7 @@ async function openBlock(index){
     }else{
       $('blockCoverage').value='';
     }
-    renderCoverageChoiceSchedule();
+    await renderCoverageChoiceSchedule();
 
     const absentCount=((result&&result.excludedAbsentNames)||[]).length;
     $('blockCoverageHint').textContent=
