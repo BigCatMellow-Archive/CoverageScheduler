@@ -10,7 +10,7 @@ Coverage Scheduler keeps Google Sheets as the operational source of truth. The p
 
 Writes invalidate the affected request-local entry immediately, so later reads in the same request see the new data.
 
-The main bootstrap and Generate paths also prime the sheets they need as a request snapshot. This makes the expensive I/O phase explicit and leaves the scheduling work to run mostly in JavaScript memory.
+Generate primes the sheets it needs as a request snapshot. The normal web bootstrap deliberately does not preload `Teacher Schedule`; detailed teacher blocks are lazy-loaded only when a person is selected.
 
 ### Short Google-managed cache for stable sources
 
@@ -18,14 +18,38 @@ The main bootstrap and Generate paths also prime the sheets they need as a reque
 
 Important properties:
 
-- cache keys are scoped to the connected spreadsheet ID, so rebinding the script cannot reuse another workbook's cached schedule;\n- the cache is an optimization only;
+- cache keys are scoped to the connected spreadsheet ID, so rebinding the script cannot reuse another workbook's cached values;
+- the cache is an optimization only;
 - Google Sheets remains authoritative;
 - a cache miss always falls back to the sheet;
 - app writes invalidate the matching cache entry;
 - the spreadsheet-bound `onEdit(e)` handler invalidates the entry when a user manually edits a source/config sheet;
-- `Teacher Schedule` always comes from the live Sheet at the start of each server request, then is reused only within that request.
+- Generate and validation requests read `Teacher Schedule` live and reuse it only within that request;
+- the browser bootstrap does not load full Teacher Schedule blocks; a selected person's schedule is fetched on demand.
 
 No external cache, database, API, or new credential is introduced.
+
+### Materialized field-trip coverage cache
+
+Field-trip candidate discovery used to rescan the full Teacher Schedule during date loading, Generate, and manual coverage work to answer: **which staff are released because this trip grade is away?**
+
+The managed hidden sheet `Field Trip Coverage Cache` now materializes that answer.
+
+- saving or editing a field trip rebuilds the cache rows for that event;
+- each row is keyed by event/date/staff and stores the trip window/grade context;
+- deleting a field trip removes its materialized rows;
+- manual edits to `Teacher Schedule`, `Field Trips`, or `Config` mark the cache dirty;
+- the next request that actually needs a field-trip pool rebuilds the cache before using it;
+- days with no field trip do not read the cache at all;
+- Coverage Staff availability, ordinary absences, trip participation, schedule conflicts, assignment conflicts, and daily limits are still applied live.
+
+The helper sheet is not a second source of truth. It is a rebuildable index derived from `Teacher Schedule` + `Field Trips`.
+
+### Lazy Teacher Schedule delivery
+
+The initial web payload now contains the Staff List roster without every teacher's block-by-block schedule. When a user selects a teacher in the absence editor or a person in the manual coverage picker, the browser requests only that person's schedule for the selected date and keeps it locally for the rest of that date.
+
+This reduces startup serialization and avoids a full Teacher Schedule read on normal bootstrap after setup is complete.
 
 ### Existing schedule index retained
 
