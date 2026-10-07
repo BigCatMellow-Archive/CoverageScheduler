@@ -330,6 +330,13 @@ function normalizeFieldTripClassMatch_(value) {
     .replace(/[^a-z0-9]+/g, '');
 }
 
+function fieldTripClassSectionKey_(value) {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return '';
+  const section = raw.split(/\s+[—–-]\s+/)[0].trim();
+  return normalizeFieldTripClassMatch_(section);
+}
+
 function resolveFieldTripWithTeacher_(row, trip, context) {
   const absentTeacher = String(row.Absent_Staff || '').trim();
   const assignedCoverage = String(row.Assigned_Coverage || '').trim();
@@ -342,6 +349,7 @@ function resolveFieldTripWithTeacher_(row, trip, context) {
   (trip.staffNames || []).forEach(name => { excluded[String(name || '').trim()] = true; });
 
   const classKey = normalizeFieldTripClassMatch_(row.Class);
+  const sectionKey = fieldTripClassSectionKey_(row.Class);
   const roomKey = normalizeFieldTripClassMatch_(row.Room);
   const subjectKey = normalizeFieldTripClassMatch_(row.Subject);
 
@@ -360,6 +368,17 @@ function resolveFieldTripWithTeacher_(row, trip, context) {
     classKey &&
     normalizeFieldTripClassMatch_(scheduleRow.className) === classKey
   );
+
+  // Co-teacher rows sometimes encode one another in Subject, e.g.
+  // "3D — Logic w/Vlattas" / "3D — Logic w/Harrington". In that case the
+  // full display names differ even though the section, room, and time are the
+  // same. Use section + room as the next conservative match.
+  if (!matches.length && sectionKey && roomKey) {
+    matches = availableRows.filter(scheduleRow =>
+      fieldTripClassSectionKey_(scheduleRow.className) === sectionKey &&
+      normalizeFieldTripClassMatch_(scheduleRow.room) === roomKey
+    );
+  }
 
   if (!matches.length && roomKey && subjectKey) {
     matches = availableRows.filter(scheduleRow =>
