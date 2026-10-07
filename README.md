@@ -189,6 +189,8 @@ The manual picker is calculated from the live workbook for that exact block. It 
 - active Coverage Staff;
 - other staff whose Teacher Schedule explicitly makes them cover-eligible at that time.
 
+Configured substitutes are shown in a separate **Subs** group at the bottom of the picker. They still have to pass the same live availability, absence, schedule-conflict, and workload checks before they appear.
+
 It excludes anyone who is absent during any portion of the block, on the field trip, already covering another overlapping block, teaching/duty-bound at that time, outside an availability window, or explicitly marked unavailable in Coverage Staff.
 
 Manual placement does **not** bypass those safeguards. The server validates the selected person again when **Save Assignment** is pressed. Full-day and partial-day absences are both enforced, and multiple absence windows for the same person are retained instead of overwriting one another.
