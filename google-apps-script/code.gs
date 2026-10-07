@@ -407,9 +407,15 @@ function activateCoverageSpreadsheetForWeb_() {
   return ss;
 }
 
+function coverageSchemaMarker_(ss) {
+  const workbook = ss || SpreadsheetApp.getActiveSpreadsheet();
+  return COVERAGE_SCHEMA_VERSION + ':' + (workbook ? workbook.getId() : '');
+}
+
 function markCoverageSchemaReady_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
   PropertiesService.getScriptProperties()
-    .setProperty(COVERAGE_SCHEMA_VERSION_PROPERTY, COVERAGE_SCHEMA_VERSION);
+    .setProperty(COVERAGE_SCHEMA_VERSION_PROPERTY, coverageSchemaMarker_(ss));
 }
 
 function ensureCoverageWorkbookReadyForWeb_() {
@@ -422,7 +428,7 @@ function ensureCoverageWorkbookReadyForWeb_() {
   // Existing installations run the full structural check once after this
   // optimization is deployed. Normal requests then use the version marker
   // instead of probing every managed sheet on every click.
-  if (schemaVersion !== COVERAGE_SCHEMA_VERSION) {
+  if (schemaVersion !== coverageSchemaMarker_(ss)) {
     const requiredSheets = [
       'Teacher Schedule',
       'Coverage Staff',
