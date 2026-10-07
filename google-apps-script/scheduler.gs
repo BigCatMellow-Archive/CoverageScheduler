@@ -3491,8 +3491,8 @@ function ensureSubstituteAvailabilitySheet_() {
 }
 
 function setSheetRowObject_(sheet, rowNumber, headers, aliasMap, rowObject) {
-  const width = Math.max(headers.length, sheet.getLastColumn(), 1);
-  const actualHeaders = sheet.getRange(1, 1, 1, width).getValues()[0].map(h => String(h || '').trim());
+  const actualHeaders = (headers || []).map(h => String(h || '').trim());
+  const width = Math.max(actualHeaders.length, 1);
   let existing;
   if (rowNumber <= sheet.getLastRow()) {
     const existingRange = sheet.getRange(rowNumber, 1, 1, width);
