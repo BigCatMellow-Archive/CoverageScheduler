@@ -245,6 +245,7 @@ function formatSheet_(sheet) {
 
 function formatFieldTripCoveragePoolSheet_(sheet) {
   if (!sheet) return;
+  if (sheet.isSheetHidden()) sheet.showSheet();
   const headers = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0]
     .map(value => String(value || '').trim());
   const enabledCol = headers.indexOf('Enabled') + 1;
