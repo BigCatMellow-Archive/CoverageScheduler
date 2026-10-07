@@ -105,6 +105,126 @@ const HEADER_ALIASES = {
   }
 };
 
+// ── Request-local read cache + lightweight performance tracing ─────────────
+// Spreadsheet service calls dominate Apps Script latency. Keep one canonical
+// copy of each sheet read for the lifetime of a server request, then invalidate
+// it immediately after any write. Teacher Schedule and Config also use a short
+// Script Cache entry; onEdit and every app write invalidate those entries.
+const COVERAGE_PERSISTENT_CACHE_TTL_SECONDS_ = 60;
+const COVERAGE_PERSISTENT_CACHE_MAX_CHARS_ = 85000;
+const COVERAGE_PERSISTENT_CACHE_KEYS_ = {
+  'Teacher Schedule': 'coverage:v1:teacher-schedule',
+  'Config': 'coverage:v1:config'
+};
+
+let COVERAGE_REQUEST_SHEET_CACHE_ = {};
+let COVERAGE_REQUEST_METRICS_ = null;
+let COVERAGE_PERF_TRACE_ = null;
+
+function beginCoverageRequest_(name) {
+  COVERAGE_REQUEST_SHEET_CACHE_ = {};
+  COVERAGE_CONFIG_CACHE_ = null;
+  COVERAGE_REQUEST_METRICS_ = {
+    request: String(name || 'coverage-request'),
+    sheetReads: 0,
+    requestCacheHits: 0,
+    persistentCacheHits: 0,
+    sheetWrites: 0
+  };
+  COVERAGE_PERF_TRACE_ = {
+    name: String(name || 'coverage-request'),
+    started: Date.now(),
+    marks: []
+  };
+}
+
+function coveragePerfMark_(label) {
+  if (!COVERAGE_PERF_TRACE_) return;
+  COVERAGE_PERF_TRACE_.marks.push({
+    label: String(label || ''),
+    elapsedMs: Date.now() - COVERAGE_PERF_TRACE_.started
+  });
+}
+
+function endCoverageRequest_() {
+  if (!COVERAGE_PERF_TRACE_) return null;
+  const result = {
+    request: COVERAGE_PERF_TRACE_.name,
+    elapsedMs: Date.now() - COVERAGE_PERF_TRACE_.started,
+    marks: COVERAGE_PERF_TRACE_.marks.slice(),
+    io: COVERAGE_REQUEST_METRICS_ || {}
+  };
+  console.log('[Coverage Performance] ' + JSON.stringify(result));
+  COVERAGE_PERF_TRACE_ = null;
+  return result;
+}
+
+function incrementCoverageMetric_(name) {
+  if (!COVERAGE_REQUEST_METRICS_) return;
+  COVERAGE_REQUEST_METRICS_[name] = Number(COVERAGE_REQUEST_METRICS_[name] || 0) + 1;
+}
+
+function persistentCoverageCacheKey_(sheetName) {
+  return COVERAGE_PERSISTENT_CACHE_KEYS_[String(sheetName || '')] || '';
+}
+
+function persistentCacheSafeRows_(rows) {
+  return (rows || []).map(row => {
+    const out = {};
+    Object.keys(row || {}).forEach(key => {
+      const value = row[key];
+      if (Object.prototype.toString.call(value) === '[object Date]') {
+        const year = value.getFullYear();
+        out[key] = year <= 1900 ? timeToDisplay_(value) : normalizeDateKey_(value);
+      } else {
+        out[key] = value;
+      }
+    });
+    return out;
+  });
+}
+
+function readPersistentSheetObjectsCache_(sheetName) {
+  const key = persistentCoverageCacheKey_(sheetName);
+  if (!key) return null;
+  try {
+    const cached = CacheService.getScriptCache().get(key);
+    if (!cached) return null;
+    const parsed = JSON.parse(cached);
+    if (!Array.isArray(parsed)) return null;
+    incrementCoverageMetric_('persistentCacheHits');
+    return parsed;
+  } catch (error) {
+    return null;
+  }
+}
+
+function writePersistentSheetObjectsCache_(sheetName, rows) {
+  const key = persistentCoverageCacheKey_(sheetName);
+  if (!key) return;
+  try {
+    const json = JSON.stringify(persistentCacheSafeRows_(rows));
+    if (json.length > COVERAGE_PERSISTENT_CACHE_MAX_CHARS_) return;
+    CacheService.getScriptCache().put(key, json, COVERAGE_PERSISTENT_CACHE_TTL_SECONDS_);
+  } catch (error) {
+    // Cache is an optimization only. Never let it block operational work.
+  }
+}
+
+function invalidateCoverageSheetCache_(sheetName) {
+  const name = String(sheetName || '');
+  delete COVERAGE_REQUEST_SHEET_CACHE_[name];
+  if (name === 'Config') COVERAGE_CONFIG_CACHE_ = null;
+  const key = persistentCoverageCacheKey_(name);
+  if (key) {
+    try { CacheService.getScriptCache().remove(key); } catch (error) {}
+  }
+}
+
+function primeCoverageRequestSnapshot_(sheetNames) {
+  (sheetNames || []).forEach(name => readSheetObjects_(name));
+}
+
 // ── Write safety ──────────────────────────────────────────────────────────
 // Several front-office users can use the web app at once, and most saves are
 // read-modify-write over a whole sheet. Without a lock, two overlapping saves
@@ -141,7 +261,9 @@ function rewriteSheetRows_(sheetName, headers, rows) {
   const lastCol = sheet.getLastColumn();
   if (previousLastRow >= firstStaleRow && lastCol > 0) {
     sheet.getRange(firstStaleRow, 1, previousLastRow - firstStaleRow + 1, lastCol).clearContent();
+    incrementCoverageMetric_('sheetWrites');
   }
+  invalidateCoverageSheetCache_(sheetName);
 }
 
 // A generated plan is only valid for the absences and field trips it was
@@ -620,6 +742,8 @@ function toggleCoverageStaffActiveUnlocked_(payload) {
     if (String(values[r][nameCol] || '').trim() === name) {
       const current = normalizeYesNo_(values[r][activeCol], true);
       sheet.getRange(r + 1, activeCol + 1).setValue(current ? 'No' : 'Yes');
+      incrementCoverageMetric_('sheetWrites');
+      invalidateCoverageSheetCache_(getCoverageStaffSheetName_());
       break;
     }
   }
@@ -1881,6 +2005,16 @@ function generateCoveragePreview(payload) {
   const date = payload.date || Utilities.formatDate(new Date(), coverageTimeZone_(), 'yyyy-MM-dd');
   const day = payload.day || guessDayCodeFromDate_(date);
 
+  primeCoverageRequestSnapshot_([
+    'Teacher Schedule',
+    getCoverageStaffSheetName_(),
+    'Substitute Availability',
+    'Daily Absences',
+    'Field Trips',
+    'Config'
+  ]);
+  coveragePerfMark_('snapshot-loaded');
+
   const config = getConfigMap_();
   const teacherSchedule = filterTeacherScheduleForDate_(
     readSheetObjects_('Teacher Schedule'),
@@ -2158,7 +2292,9 @@ function generateCoveragePreview(payload) {
     summary.splitAssignments += Object.keys(fallbackAssigned).length;
   }
 
+  coveragePerfMark_('schedule-built');
   writePreview_(planRows);
+  coveragePerfMark_('preview-written');
 
   return {
     date: date,
@@ -3341,11 +3477,20 @@ function ensureSubstituteAvailabilitySheet_() {
 }
 
 function setSheetRowObject_(sheet, rowNumber, headers, aliasMap, rowObject) {
-  Object.keys(rowObject).forEach(canonical => {
-    const aliases = aliasMap[canonical] || [canonical];
-    const col = findColumnByAliases_(headers, aliases);
-    if (col !== -1) sheet.getRange(rowNumber, col + 1).setValue(rowObject[canonical]);
+  const width = Math.max(headers.length, sheet.getLastColumn(), 1);
+  const actualHeaders = sheet.getRange(1, 1, 1, width).getValues()[0].map(h => String(h || '').trim());
+  const existing = rowNumber <= sheet.getLastRow()
+    ? sheet.getRange(rowNumber, 1, 1, width).getValues()[0]
+    : new Array(width).fill('');
+
+  Object.keys(rowObject || {}).forEach(canonical => {
+    const col = findColumnByAliases_(actualHeaders, aliasMap[canonical]);
+    if (col !== -1) existing[col] = rowObject[canonical];
   });
+
+  sheet.getRange(rowNumber, 1, 1, width).setValues([existing]);
+  incrementCoverageMetric_('sheetWrites');
+  invalidateCoverageSheetCache_(sheet.getName());
 }
 
 function normalizeAvailableDays_(value) {
@@ -3470,27 +3615,53 @@ function gradeToComparable_(value) {
 }
 
 function readSheetObjects_(sheetName) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(sheetName);
-  if (!sheet || sheet.getLastRow() < 2) return [];
+  const name = String(sheetName || '');
+  if (Object.prototype.hasOwnProperty.call(COVERAGE_REQUEST_SHEET_CACHE_, name)) {
+    incrementCoverageMetric_('requestCacheHits');
+    return COVERAGE_REQUEST_SHEET_CACHE_[name];
+  }
 
+  const persistent = readPersistentSheetObjectsCache_(name);
+  if (persistent !== null) {
+    COVERAGE_REQUEST_SHEET_CACHE_[name] = persistent;
+    return persistent;
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(name);
+  if (!sheet || sheet.getLastRow() < 2) {
+    COVERAGE_REQUEST_SHEET_CACHE_[name] = [];
+    return COVERAGE_REQUEST_SHEET_CACHE_[name];
+  }
+
+  incrementCoverageMetric_('sheetReads');
   const values = sheet.getDataRange().getValues();
   const headers = values[0].map(h => String(h || '').trim());
-  const aliasMap = HEADER_ALIASES[sheetName] || (sheetName === 'Substitutes' ? HEADER_ALIASES['Coverage Staff'] : {});
+  const aliasMap = HEADER_ALIASES[name] || (name === 'Substitutes' ? HEADER_ALIASES['Coverage Staff'] : {});
+  const columnByCanonical = {};
 
-  return values.slice(1).map(row => {
+  Object.keys(aliasMap).forEach(canonical => {
+    const aliases = aliasMap[canonical];
+    let foundIndex = -1;
+    aliases.some(alias => {
+      foundIndex = headers.indexOf(alias);
+      return foundIndex !== -1;
+    });
+    columnByCanonical[canonical] = foundIndex;
+  });
+
+  const rows = values.slice(1).map(row => {
     const out = {};
-    Object.keys(aliasMap).forEach(canonical => {
-      const aliases = aliasMap[canonical];
-      let foundIndex = -1;
-      aliases.some(alias => {
-        foundIndex = headers.indexOf(alias);
-        return foundIndex !== -1;
-      });
+    Object.keys(columnByCanonical).forEach(canonical => {
+      const foundIndex = columnByCanonical[canonical];
       out[canonical] = foundIndex === -1 ? '' : row[foundIndex];
     });
     return out;
   }).filter(obj => Object.keys(obj).some(key => String(obj[key] || '').trim() !== ''));
+
+  COVERAGE_REQUEST_SHEET_CACHE_[name] = rows;
+  writePersistentSheetObjectsCache_(name, rows);
+  return rows;
 }
 
 function writeObjectsToSheet_(sheetName, headers, rows, append) {
@@ -3517,6 +3688,8 @@ function writeObjectsToSheet_(sheetName, headers, rows, append) {
 
   if (!values.length) return;
   sheet.getRange(startRow, 1, values.length, writeHeaders.length).setValues(values);
+  incrementCoverageMetric_('sheetWrites');
+  invalidateCoverageSheetCache_(sheetName);
 }
 
 function getConfigMap_() {
