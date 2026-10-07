@@ -62,15 +62,27 @@ const HEADER_ALIASES = {
     Staff: ['Staff', 'Teachers', 'Staff_Away', 'Staff Away'],
     Notes: ['Notes']
   },
-  'Field Trip Coverage Cache': {
+  'Field Trip Coverage Pool': {
     Event_ID: ['Event_ID', 'Event ID'],
+    Event_Name: ['Event_Name', 'Event Name'],
     Date: ['Date'],
     Day: ['Day'],
-    Staff_Name: ['Staff_Name', 'Staff Name', 'Teacher', 'Name'],
-    Event_Name: ['Event_Name', 'Event Name', 'Name'],
-    Grades: ['Grades'],
+    Absent_Staff: ['Absent_Staff', 'Absent Staff'],
     Start: ['Start'],
     End: ['End'],
+    Class: ['Class'],
+    Grade: ['Grade'],
+    Subject: ['Subject'],
+    Assignment_Type: ['Assignment_Type', 'Assignment Type'],
+    Room: ['Room'],
+    Candidate: ['Candidate', 'Coverage Person', 'Staff'],
+    Candidate_Role: ['Candidate_Role', 'Candidate Role'],
+    Candidate_Tier: ['Candidate_Tier', 'Candidate Tier', 'Tier'],
+    Source: ['Source'],
+    Baseline_Score: ['Baseline_Score', 'Baseline Score'],
+    Reason: ['Reason'],
+    Enabled: ['Enabled', 'Use', 'Active'],
+    Priority_Adjustment: ['Priority_Adjustment', 'Priority Adjustment'],
     Built_At: ['Built_At', 'Built At']
   },
   'Coverage Output': {
@@ -128,8 +140,8 @@ const COVERAGE_PERSISTENT_CACHE_KEYS_ = {
   'Config': 'coverage:v1:config'
 };
 
-const FIELD_TRIP_COVERAGE_CACHE_SHEET_ = 'Field Trip Coverage Cache';
-const FIELD_TRIP_COVERAGE_CACHE_DIRTY_PROPERTY_ = 'FIELD_TRIP_COVERAGE_CACHE_DIRTY';
+const FIELD_TRIP_COVERAGE_POOL_SHEET_ = 'Field Trip Coverage Pool';
+const FIELD_TRIP_COVERAGE_POOL_DIRTY_PROPERTY_ = 'FIELD_TRIP_COVERAGE_POOL_DIRTY';
 
 let COVERAGE_REQUEST_SHEET_CACHE_ = {};
 let COVERAGE_REQUEST_METRICS_ = null;
@@ -948,33 +960,33 @@ function buildFieldTripParticipantAbsences_(fieldTrips, teacherSchedule, day) {
   return rows;
 }
 
-function markFieldTripCoverageCacheDirty_() {
+function markFieldTripCoveragePoolDirty_() {
   PropertiesService.getScriptProperties()
-    .setProperty(FIELD_TRIP_COVERAGE_CACHE_DIRTY_PROPERTY_, '1');
-  invalidateCoverageSheetCache_(FIELD_TRIP_COVERAGE_CACHE_SHEET_);
+    .setProperty(FIELD_TRIP_COVERAGE_POOL_DIRTY_PROPERTY_, '1');
+  invalidateCoverageSheetCache_(FIELD_TRIP_COVERAGE_POOL_SHEET_);
 }
 
-function clearFieldTripCoverageCacheDirty_() {
+function clearFieldTripCoveragePoolDirty_() {
   PropertiesService.getScriptProperties()
-    .deleteProperty(FIELD_TRIP_COVERAGE_CACHE_DIRTY_PROPERTY_);
+    .deleteProperty(FIELD_TRIP_COVERAGE_POOL_DIRTY_PROPERTY_);
 }
 
-function fieldTripCoverageCacheIsDirty_() {
+function fieldTripCoveragePoolIsDirty_() {
   return PropertiesService.getScriptProperties()
-    .getProperty(FIELD_TRIP_COVERAGE_CACHE_DIRTY_PROPERTY_) === '1';
+    .getProperty(FIELD_TRIP_COVERAGE_POOL_DIRTY_PROPERTY_) === '1';
 }
 
-function ensureFieldTripCoverageCacheSheet_() {
+function ensureFieldTripCoveragePoolSheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(FIELD_TRIP_COVERAGE_CACHE_SHEET_);
+  let sheet = ss.getSheetByName(FIELD_TRIP_COVERAGE_POOL_SHEET_);
   if (!sheet) {
-    sheet = ss.insertSheet(FIELD_TRIP_COVERAGE_CACHE_SHEET_);
-    sheet.getRange(1, 1, 1, SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_CACHE_SHEET_].headers.length)
-      .setValues([SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_CACHE_SHEET_].headers]);
-    sheet.hideSheet();
+    sheet = ss.insertSheet(FIELD_TRIP_COVERAGE_POOL_SHEET_);
+    sheet.getRange(1, 1, 1, SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_POOL_SHEET_].headers.length)
+      .setValues([SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_POOL_SHEET_].headers]);
   } else {
-    ensureHeaderRow_(sheet, SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_CACHE_SHEET_].headers);
+    ensureHeaderRow_(sheet, SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_POOL_SHEET_].headers);
   }
+  if (sheet.isSheetHidden()) sheet.showSheet();
   return sheet;
 }
 
@@ -1017,7 +1029,102 @@ function fieldTripAffectedNamesForDate_(trip, date, teacherScheduleRows, config)
   return Object.keys(affected).sort();
 }
 
-function buildFieldTripCoverageCacheRowsForTrip_(trip, teacherScheduleRows, config) {
+function makeFieldTripReleaseCandidate_(name, trip, date) {
+  const activeTrip = fieldTripForDate_(trip, date) || trip;
+  const times = fieldTripTimes_(activeTrip);
+  return {
+    name: name,
+    role: 'Field Trip Release',
+    tier: 3,
+    canCoverAllDay: false,
+    baseActive: true,
+    activeToday: true,
+    availableDays: '*',
+    defaultStart: '',
+    defaultEnd: '',
+    selectedStart: '',
+    selectedEnd: '',
+    hasDateOverride: false,
+    availabilityNotes: '',
+    allowedGrades: '*',
+    allowedSubjects: '*',
+    allowedAssignmentTypes: '*',
+    maxBlocksPerDay: Infinity,
+    maxTeachersPerDay: Infinity,
+    canBeSplitAcrossTeachers: true,
+    notes: 'Temporary coverage availability created by a field trip.',
+    fieldTripEvents: [{
+      eventId: trip.eventId,
+      name: trip.name,
+      grades: (trip.grades || []).slice(),
+      startMinutes: times.startMinutes,
+      endMinutes: times.endMinutes
+    }],
+    fieldTripOnly: true
+  };
+}
+
+function buildFieldTripCoverageCandidatesLive_(trip, date, teacherScheduleRows, config, activeCoverageStaff, configuredCoverageStaff) {
+  const configuredByName = {};
+  (configuredCoverageStaff || []).forEach(candidate => {
+    if (candidate && candidate.name) configuredByName[candidate.name] = candidate;
+  });
+
+  const byName = {};
+  (activeCoverageStaff || []).forEach(candidate => {
+    byName[candidate.name] = Object.assign({}, candidate, {
+      fieldTripEvents: (candidate.fieldTripEvents || []).slice(),
+      fieldTripOnly: false
+    });
+  });
+
+  fieldTripAffectedNamesForDate_(trip, date, teacherScheduleRows, config).forEach(name => {
+    const configured = configuredByName[name];
+    if (configured && !configured.activeToday) return;
+
+    let candidate = byName[name];
+    if (!candidate) {
+      candidate = makeFieldTripReleaseCandidate_(name, trip, date);
+      byName[name] = candidate;
+      return;
+    }
+
+    if (!candidate.fieldTripEvents.some(event => event.eventId === trip.eventId)) {
+      candidate.fieldTripEvents = candidate.fieldTripEvents.concat(
+        makeFieldTripReleaseCandidate_(name, trip, date).fieldTripEvents
+      );
+    }
+  });
+
+  return Object.keys(byName).map(name => byName[name]);
+}
+
+function fieldTripCoveragePoolRowKey_(row) {
+  return [
+    String(row.Event_ID || '').trim(),
+    normalizeDateKey_(row.Date),
+    coveragePersonNameKey_(row.Absent_Staff),
+    timeToDisplay_(row.Start),
+    timeToDisplay_(row.End),
+    coveragePersonNameKey_(row.Candidate)
+  ].join('\u0000');
+}
+
+function normalizePoolEnabled_(value, fallback) {
+  const raw = String(value == null ? '' : value).trim().toLowerCase();
+  if (!raw) return fallback !== false;
+  return ['true', 'yes', 'y', '1', 'enabled', 'on'].indexOf(raw) !== -1;
+}
+
+function fieldTripCoveragePoolRowsForTrip_(trip, existingRows) {
+  const config = getConfigMap_();
+  const teacherScheduleRows = readSheetObjects_('Teacher Schedule');
+  const overrides = {};
+  (existingRows || []).forEach(row => {
+    if (String(row.Event_ID || '').trim() !== String(trip.eventId || '').trim()) return;
+    overrides[fieldTripCoveragePoolRowKey_(row)] = row;
+  });
+
   const builtAt = Utilities.formatDate(new Date(), coverageTimeZone_(), "yyyy-MM-dd'T'HH:mm:ss");
   const rows = [];
 
@@ -1025,20 +1132,78 @@ function buildFieldTripCoverageCacheRowsForTrip_(trip, teacherScheduleRows, conf
     const activeTrip = fieldTripForDate_(trip, date);
     if (!activeTrip) return;
     const day = guessDayCodeFromDate_(date);
-    const times = fieldTripTimes_(activeTrip);
-    if (times.startMinutes == null || times.endMinutes == null) return;
+    const teacherSchedule = filterTeacherScheduleForDate_(teacherScheduleRows, date, config);
+    const configuredCoverageStaff = getCoverageStaffForDate_(date, day, config);
+    const activeCoverageStaff = configuredCoverageStaff.filter(row => row.name && row.activeToday);
+    const candidates = buildFieldTripCoverageCandidatesLive_(
+      activeTrip,
+      date,
+      teacherSchedule,
+      config,
+      activeCoverageStaff,
+      configuredCoverageStaff
+    );
 
-    fieldTripAffectedNamesForDate_(trip, date, teacherScheduleRows, config).forEach(name => {
-      rows.push({
-        Event_ID: trip.eventId,
-        Date: date,
-        Day: day,
-        Staff_Name: name,
-        Event_Name: trip.name || '',
-        Grades: (trip.grades || []).join(' | '),
-        Start: minutesToDisplay_(times.startMinutes),
-        End: minutesToDisplay_(Math.min(times.endMinutes, 1439)),
-        Built_At: builtAt
+    const tripAbsences = buildFieldTripParticipantAbsences_([activeTrip], teacherSchedule, day);
+    const needsByTeacher = buildCoverageNeedsByTeacher_(tripAbsences, teacherSchedule, day, [activeTrip]);
+    const state = makeEmptyState_();
+    state.absencesByCandidate = buildAbsenceWindowsByStaff_(tripAbsences);
+
+    Object.keys(needsByTeacher).sort().forEach(absentName => {
+      (needsByTeacher[absentName] || []).forEach(block => {
+        if (String(block.fieldTripEventId || '') !== String(trip.eventId || '')) return;
+
+        candidates.forEach(candidate => {
+          if (!candidateCanCoverBlock_(candidate, absentName, block, teacherSchedule, day, state, config)) return;
+
+          const availability = candidateAvailabilityForBlock_(candidate, block, teacherSchedule, day, state);
+          const scoreInfo = scoreCandidateForBlock_(candidate, absentName, block, state);
+          const runwayMinutes = Math.max(0, Number(availability.fieldTripRunwayMinutes || 0));
+          const baselineScore = scoreInfo.score +
+            Number(availability.fieldTripPriority || 0) * 250 +
+            Math.min(runwayMinutes, 60);
+          const source = candidateHasFieldTripEvent_(candidate, trip.eventId)
+            ? 'Field Trip Pool'
+            : 'Coverage Staff';
+          const reason = availability.fieldTripReason ||
+            scoreInfo.reason ||
+            (candidate.canCoverAllDay
+              ? 'Available Coverage Staff for this block.'
+              : 'Available during a cover-eligible schedule block.');
+
+          const row = {
+            Event_ID: trip.eventId,
+            Event_Name: trip.name || '',
+            Date: date,
+            Day: day,
+            Absent_Staff: absentName,
+            Start: minutesToDisplay_(block.startMinutes),
+            End: minutesToDisplay_(block.endMinutes),
+            Class: block.className || '',
+            Grade: block.grade || '',
+            Subject: block.subject || '',
+            Assignment_Type: block.assignmentType || '',
+            Room: block.room || '',
+            Candidate: candidate.name,
+            Candidate_Role: candidate.role || '',
+            Candidate_Tier: candidate.tier,
+            Source: source,
+            Baseline_Score: baselineScore,
+            Reason: reason,
+            Enabled: 'TRUE',
+            Priority_Adjustment: 0,
+            Built_At: builtAt
+          };
+
+          const previous = overrides[fieldTripCoveragePoolRowKey_(row)];
+          if (previous) {
+            row.Enabled = previous.Enabled === '' || previous.Enabled == null ? 'TRUE' : previous.Enabled;
+            row.Priority_Adjustment = previous.Priority_Adjustment === '' || previous.Priority_Adjustment == null
+              ? 0
+              : previous.Priority_Adjustment;
+          }
+          rows.push(row);
+        });
       });
     });
   });
@@ -1046,75 +1211,96 @@ function buildFieldTripCoverageCacheRowsForTrip_(trip, teacherScheduleRows, conf
   return rows;
 }
 
-function rebuildFieldTripCoverageCacheForTrip_(trip) {
-  if (!trip || !trip.eventId) return [];
-  ensureFieldTripCoverageCacheSheet_();
+function sortFieldTripCoveragePoolRows_(rows) {
+  return (rows || []).slice().sort((a, b) =>
+    String(a.Date || '').localeCompare(String(b.Date || '')) ||
+    displayTimeToMinutes_(a.Start) - displayTimeToMinutes_(b.Start) ||
+    String(a.Absent_Staff || '').localeCompare(String(b.Absent_Staff || '')) ||
+    Number(b.Baseline_Score || 0) - Number(a.Baseline_Score || 0) ||
+    String(a.Candidate || '').localeCompare(String(b.Candidate || ''))
+  );
+}
 
-  const config = getConfigMap_();
-  const teacherScheduleRows = readSheetObjects_('Teacher Schedule');
-  const existing = readSheetObjects_(FIELD_TRIP_COVERAGE_CACHE_SHEET_)
-    .filter(row => String(row.Event_ID || '').trim() !== String(trip.eventId || '').trim());
-  const rebuilt = buildFieldTripCoverageCacheRowsForTrip_(trip, teacherScheduleRows, config);
+function rebuildFieldTripCoveragePoolForTrip_(trip) {
+  if (!trip || !trip.eventId) return [];
+  ensureFieldTripCoveragePoolSheet_();
+
+  const existing = readSheetObjects_(FIELD_TRIP_COVERAGE_POOL_SHEET_);
+  const kept = existing.filter(row =>
+    String(row.Event_ID || '').trim() !== String(trip.eventId || '').trim()
+  );
+  const rebuilt = fieldTripCoveragePoolRowsForTrip_(trip, existing);
+  const allRows = sortFieldTripCoveragePoolRows_(kept.concat(rebuilt));
 
   rewriteSheetRows_(
-    FIELD_TRIP_COVERAGE_CACHE_SHEET_,
-    SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_CACHE_SHEET_].headers,
-    existing.concat(rebuilt)
+    FIELD_TRIP_COVERAGE_POOL_SHEET_,
+    SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_POOL_SHEET_].headers,
+    allRows
   );
-  coveragePerfMark_('field-trip-cache-rebuilt');
+  coveragePerfMark_('field-trip-pool-rebuilt');
   return rebuilt;
 }
 
-function removeFieldTripCoverageCacheForEvent_(eventId) {
+function removeFieldTripCoveragePoolForEvent_(eventId) {
   const id = String(eventId || '').trim();
   if (!id) return;
-  ensureFieldTripCoverageCacheSheet_();
-  const existing = readSheetObjects_(FIELD_TRIP_COVERAGE_CACHE_SHEET_);
+  ensureFieldTripCoveragePoolSheet_();
+  const existing = readSheetObjects_(FIELD_TRIP_COVERAGE_POOL_SHEET_);
   const kept = existing.filter(row => String(row.Event_ID || '').trim() !== id);
   if (kept.length === existing.length) return;
   rewriteSheetRows_(
-    FIELD_TRIP_COVERAGE_CACHE_SHEET_,
-    SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_CACHE_SHEET_].headers,
+    FIELD_TRIP_COVERAGE_POOL_SHEET_,
+    SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_POOL_SHEET_].headers,
     kept
   );
 }
 
-function rebuildAllFieldTripCoverageCache_() {
-  ensureFieldTripCoverageCacheSheet_();
+function rebuildAllFieldTripCoveragePool_() {
+  ensureFieldTripCoveragePoolSheet_();
   const trips = getFieldTripsInRange_('', '');
-  const teacherScheduleRows = readSheetObjects_('Teacher Schedule');
-  const config = getConfigMap_();
+  const existing = readSheetObjects_(FIELD_TRIP_COVERAGE_POOL_SHEET_);
   let rows = [];
   trips.forEach(trip => {
-    rows = rows.concat(buildFieldTripCoverageCacheRowsForTrip_(trip, teacherScheduleRows, config));
+    rows = rows.concat(fieldTripCoveragePoolRowsForTrip_(trip, existing));
   });
 
   rewriteSheetRows_(
-    FIELD_TRIP_COVERAGE_CACHE_SHEET_,
-    SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_CACHE_SHEET_].headers,
-    rows
+    FIELD_TRIP_COVERAGE_POOL_SHEET_,
+    SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_POOL_SHEET_].headers,
+    sortFieldTripCoveragePoolRows_(rows)
   );
-  clearFieldTripCoverageCacheDirty_();
-  coveragePerfMark_('field-trip-cache-full-rebuild');
+  clearFieldTripCoveragePoolDirty_();
+  coveragePerfMark_('field-trip-pool-full-rebuild');
   return rows;
 }
 
-function ensureFieldTripCoverageCacheFresh_() {
+function ensureFieldTripCoveragePoolFresh_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss.getSheetByName(FIELD_TRIP_COVERAGE_CACHE_SHEET_) || fieldTripCoverageCacheIsDirty_()) {
-    return rebuildAllFieldTripCoverageCache_();
+  if (!ss.getSheetByName(FIELD_TRIP_COVERAGE_POOL_SHEET_) || fieldTripCoveragePoolIsDirty_()) {
+    return rebuildAllFieldTripCoveragePool_();
   }
-  return readSheetObjects_(FIELD_TRIP_COVERAGE_CACHE_SHEET_);
+  return readSheetObjects_(FIELD_TRIP_COVERAGE_POOL_SHEET_);
 }
 
-function fieldTripCoverageCacheRowsForDate_(date) {
+function fieldTripCoveragePoolRowsForDate_(date) {
   const key = normalizeDateKey_(date);
   if (!key) return [];
-  return ensureFieldTripCoverageCacheFresh_()
+  return ensureFieldTripCoveragePoolFresh_()
     .filter(row => normalizeDateKey_(row.Date) === key);
 }
 
-function buildFieldTripCoverageCandidatesFromCache_(fieldTrips, date, activeCoverageStaff, configuredCoverageStaff) {
+function fieldTripCoveragePoolEntriesForBlock_(poolRows, eventId, absentName, block) {
+  const id = String(eventId || '').trim();
+  return (poolRows || []).filter(row =>
+    String(row.Event_ID || '').trim() === id &&
+    coveragePersonNameKey_(row.Absent_Staff) === coveragePersonNameKey_(absentName) &&
+    displayTimeToMinutes_(row.Start) === Number(block.startMinutes) &&
+    displayTimeToMinutes_(row.End) === Number(block.endMinutes) &&
+    normalizePoolEnabled_(row.Enabled, true)
+  );
+}
+
+function buildFieldTripCoverageCandidatesFromPool_(fieldTrips, date, activeCoverageStaff, configuredCoverageStaff, poolRows) {
   const configuredByName = {};
   (configuredCoverageStaff || []).forEach(candidate => {
     if (candidate && candidate.name) configuredByName[candidate.name] = candidate;
@@ -1135,9 +1321,10 @@ function buildFieldTripCoverageCandidatesFromCache_(fieldTrips, date, activeCove
   const tripsById = {};
   (fieldTrips || []).forEach(trip => { tripsById[String(trip.eventId || '').trim()] = trip; });
 
-  fieldTripCoverageCacheRowsForDate_(date).forEach(row => {
+  (poolRows || []).forEach(row => {
+    if (!normalizePoolEnabled_(row.Enabled, true)) return;
     const eventId = String(row.Event_ID || '').trim();
-    const name = String(row.Staff_Name || '').trim();
+    const name = String(row.Candidate || '').trim();
     const trip = tripsById[eventId];
     if (!eventId || !name || !trip) return;
 
@@ -1146,47 +1333,52 @@ function buildFieldTripCoverageCandidatesFromCache_(fieldTrips, date, activeCove
 
     let candidate = byName[name];
     if (!candidate) {
-      candidate = {
-        name: name,
-        role: 'Field Trip Release',
-        tier: 3,
-        canCoverAllDay: false,
-        baseActive: true,
-        activeToday: true,
-        availableDays: '*',
-        defaultStart: '',
-        defaultEnd: '',
-        selectedStart: '',
-        selectedEnd: '',
-        hasDateOverride: false,
-        availabilityNotes: '',
-        allowedGrades: '*',
-        allowedSubjects: '*',
-        allowedAssignmentTypes: '*',
-        maxBlocksPerDay: Infinity,
-        maxTeachersPerDay: Infinity,
-        canBeSplitAcrossTeachers: true,
-        notes: 'Temporary coverage availability created by a field trip.',
-        fieldTripEvents: [],
-        fieldTripOnly: true
-      };
+      candidate = makeFieldTripReleaseCandidate_(name, trip, date);
+      candidate.fieldTripEvents = [];
       byName[name] = candidate;
     }
 
-    if (!candidate.fieldTripEvents.some(event => event.eventId === eventId)) {
-      const activeTrip = fieldTripForDate_(trip, date) || trip;
-      const times = fieldTripTimes_(activeTrip);
-      candidate.fieldTripEvents.push({
-        eventId: eventId,
-        name: trip.name,
-        grades: (trip.grades || []).slice(),
-        startMinutes: times.startMinutes,
-        endMinutes: times.endMinutes
-      });
+    if (String(row.Source || '') === 'Field Trip Pool' &&
+        !candidate.fieldTripEvents.some(event => event.eventId === eventId)) {
+      candidate.fieldTripEvents = candidate.fieldTripEvents.concat(
+        makeFieldTripReleaseCandidate_(name, trip, date).fieldTripEvents
+      );
     }
   });
 
   return Object.keys(byName).map(name => byName[name]);
+}
+
+function fieldTripPoolCandidateSubset_(poolRows, eventId, absentName, block, coverageStaff, releasedOnly) {
+  const entries = fieldTripCoveragePoolEntriesForBlock_(poolRows, eventId, absentName, block)
+    .filter(row => !releasedOnly || String(row.Source || '') === 'Field Trip Pool');
+  const entryByName = {};
+  entries.forEach(row => {
+    entryByName[coveragePersonNameKey_(row.Candidate)] = row;
+  });
+
+  return (coverageStaff || [])
+    .filter(candidate => !!entryByName[coveragePersonNameKey_(candidate.name)])
+    .map(candidate => {
+      const row = entryByName[coveragePersonNameKey_(candidate.name)];
+      const copy = Object.assign({}, candidate);
+      copy.poolPriorityAdjustment = Number(row.Priority_Adjustment || 0);
+      copy.poolBaselineScore = Number(row.Baseline_Score || 0);
+      copy.poolSource = String(row.Source || '');
+      return copy;
+    });
+}
+
+function menuRebuildFieldTripCoveragePool() {
+  return withCoverageLock_(() => {
+    const rows = rebuildAllFieldTripCoveragePool_();
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      'Field Trip Coverage Pool rebuilt: ' + rows.length + ' candidate rows.',
+      APP_TITLE,
+      6
+    );
+    return rows.length;
+  });
 }
 
 function candidateHasFieldTripEvent_(candidate, eventId) {
