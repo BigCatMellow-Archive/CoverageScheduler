@@ -1117,6 +1117,11 @@ function normalizePoolEnabled_(value, fallback) {
   return ['true', 'yes', 'y', '1', 'enabled', 'on'].indexOf(raw) !== -1;
 }
 
+function poolPriorityAdjustment_(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
 function fieldTripCoveragePoolRowsForTrip_(trip, existingRows) {
   const config = getConfigMap_();
   const teacherScheduleRows = readSheetObjects_('Teacher Schedule');
@@ -1363,7 +1368,7 @@ function fieldTripPoolCandidateSubset_(poolRows, eventId, absentName, block, cov
     .map(candidate => {
       const row = entryByName[coveragePersonNameKey_(candidate.name)];
       const copy = Object.assign({}, candidate);
-      copy.poolPriorityAdjustment = Number(row.Priority_Adjustment || 0);
+      copy.poolPriorityAdjustment = poolPriorityAdjustment_(row.Priority_Adjustment);
       copy.poolBaselineScore = Number(row.Baseline_Score || 0);
       copy.poolSource = String(row.Source || '');
       return copy;
@@ -2295,7 +2300,7 @@ function getManualCoverageChoices_(payload) {
         (candidate.canCoverAllDay
           ? 'Available as Coverage Staff for the full block.'
           : 'Available during a cover-eligible schedule block.'),
-      score: scoreInfo.score + fieldTripBoost + runwayBoost + Number(poolEntry && poolEntry.Priority_Adjustment || 0)
+      score: scoreInfo.score + fieldTripBoost + runwayBoost + poolPriorityAdjustment_(poolEntry && poolEntry.Priority_Adjustment)
     });
   });
 
