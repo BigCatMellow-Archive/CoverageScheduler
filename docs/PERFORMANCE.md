@@ -29,21 +29,23 @@ Important properties:
 
 No external cache, database, API, or new credential is introduced.
 
-### Materialized field-trip coverage cache
+### Materialized field-trip coverage pool
 
-Field-trip candidate discovery used to rescan the full Teacher Schedule during date loading, Generate, and manual coverage work to answer: **which staff are released because this trip grade is away?**
+Field-trip coverage used to repeatedly rediscover and score candidates for every trip-created coverage block. The pool now materializes that expensive baseline work once.
 
-The managed hidden sheet `Field Trip Coverage Cache` now materializes that answer.
+The visible sheet `Field Trip Coverage Pool` contains one row per **field-trip coverage block × eligible candidate**.
 
-- saving or editing a field trip rebuilds the cache rows for that event;
-- each row is keyed by event/date/staff and stores the trip window/grade context;
-- deleting a field trip removes its materialized rows;
-- manual edits to `Teacher Schedule`, `Field Trips`, or `Config` mark the cache dirty;
-- the next request that actually needs a field-trip pool rebuilds the cache before using it;
-- days with no field trip do not read the cache at all;
-- Coverage Staff availability, ordinary absences, trip participation, schedule conflicts, assignment conflicts, and daily limits are still applied live.
+- saving or editing a field trip rebuilds that event's block/candidate rows;
+- each row stores the event, coverage block, candidate, source, baseline score, reason, `Enabled`, and `Priority_Adjustment`;
+- deleting a field trip removes its pool rows;
+- manual edits to `Teacher Schedule`, `Class Schedule`, `Field Trips`, `Config`, `Coverage Staff`, or `Substitute Availability` mark the pool stale;
+- the next field-trip request rebuilds stale materialization before using it;
+- days with no field trip do not read the pool;
+- `Enabled = No` removes that candidate from that exact block;
+- `Priority_Adjustment` changes ranking but cannot bypass hard live constraints;
+- ordinary absences, trip participation, exact schedule conflicts, current assignments, and daily limits are still checked live.
 
-The helper sheet is not a second source of truth. It is a rebuildable index derived from `Teacher Schedule` + `Field Trips`.
+The pool is a rebuildable planning index, not a replacement source of truth. Rebuilds preserve the operator-entered `Enabled` and `Priority_Adjustment` values for matching block/candidate rows.
 
 ### Lazy Teacher Schedule delivery
 

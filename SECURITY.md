@@ -33,6 +33,6 @@ Use the least-privileged execution/deployment arrangement that works with the sc
 
 ## Performance cache privacy
 
-The performance layer does not introduce an external datastore. `Config` may be held briefly in Google Apps Script `CacheService` (up to 60 seconds) to reduce repeated Spreadsheet service calls. The hidden `Field Trip Coverage Cache` is stored inside the same private operational workbook and contains derived event/date/staff release rows; it is rebuildable from `Teacher Schedule` and `Field Trips`. `Teacher Schedule` itself is not persisted in cross-request CacheService. Manual edits to schedule/trip/config sources mark field-trip materialization stale so it is rebuilt before reuse. Cache keys are scoped to the connected spreadsheet ID.
+The performance layer does not introduce an external datastore. `Config` may be held briefly in Google Apps Script `CacheService` (up to 60 seconds). `Field Trip Coverage Pool` is stored inside the same private operational workbook and contains derived block-level staffing candidates, scores, and reasons. It may therefore expose staffing/schedule information to anyone who can view that workbook; workbook sharing must remain restricted to the intended school staff. `Teacher Schedule` itself is not persisted in cross-request CacheService. Source-sheet changes mark the pool stale so it is rebuilt before reuse.
 
 Performance logs contain request names, timings, cache hit/read counts, and write counts only. They must not include staff names, absence notes, schedule rows, or assignment contents.

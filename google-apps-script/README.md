@@ -105,7 +105,7 @@ If you copy the project to a different workbook, run **Set up workbook** from th
 
 ## Performance behavior
 
-The web app treats each server call as one request snapshot: repeated reads of the same managed tab are served from memory for that request. `Config` also uses a short Apps Script cache that is invalidated by app writes and spreadsheet edits. Field-trip candidate discovery is materialized into the hidden `Field Trip Coverage Cache` when trips are saved/edited, so date loading and Generate do not repeatedly rediscover released staff from the full schedule. Live absences, coverage availability, schedule conflicts, and daily limits are still checked at assignment time. The initial web bootstrap sends a lightweight Staff List; a person's detailed Teacher Schedule is fetched only when selected. Multi-day absence entry writes `Daily Absences` once for the whole selected range rather than rewriting it once per day.
+The web app treats each server call as one request snapshot. Field-trip block eligibility is materialized into the visible `Field Trip Coverage Pool`: each eligible candidate/block combination is precomputed when a trip is saved or when the pool is rebuilt. Generate reads that pool and performs final live checks instead of scanning the full candidate universe again. Front-office users may set `Enabled` to No or edit `Priority_Adjustment`; these edits steer selection but do not bypass hard schedule/absence/limit validation. The initial web bootstrap still sends a lightweight Staff List, and detailed Teacher Schedule data is loaded only when needed.
 
 Apps Script execution logs include a `[Coverage Performance]` JSON summary for each web endpoint. See [`../docs/PERFORMANCE.md`](../docs/PERFORMANCE.md) for details.
 

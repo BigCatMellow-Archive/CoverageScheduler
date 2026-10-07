@@ -71,16 +71,28 @@ const SHEET_SCHEMAS = {
       'Notes'
     ]
   },
-  'Field Trip Coverage Cache': {
+  'Field Trip Coverage Pool': {
     headers: [
       'Event_ID',
+      'Event_Name',
       'Date',
       'Day',
-      'Staff_Name',
-      'Event_Name',
-      'Grades',
+      'Absent_Staff',
       'Start',
       'End',
+      'Class',
+      'Grade',
+      'Subject',
+      'Assignment_Type',
+      'Room',
+      'Candidate',
+      'Candidate_Role',
+      'Candidate_Tier',
+      'Source',
+      'Baseline_Score',
+      'Reason',
+      'Enabled',
+      'Priority_Adjustment',
       'Built_At'
     ]
   },
@@ -154,13 +166,20 @@ const DEFAULT_CONFIG = [
 
 function setupCoverageWorkbook() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const desiredOrder = ['Teacher Schedule', 'Coverage Staff', 'Substitute Availability', 'Daily Absences', 'Field Trips', 'Field Trip Coverage Cache', 'Coverage Output', 'Lists', 'Config', '_Preview'];
+  const legacyPool = ss.getSheetByName('Field Trip Coverage Cache');
+  if (legacyPool && !ss.getSheetByName('Field Trip Coverage Pool')) {
+    legacyPool.setName('Field Trip Coverage Pool');
+    legacyPool.clearContents();
+  }
+
+  const desiredOrder = ['Teacher Schedule', 'Coverage Staff', 'Substitute Availability', 'Daily Absences', 'Field Trips', 'Field Trip Coverage Pool', 'Coverage Output', 'Lists', 'Config', '_Preview'];
 
   desiredOrder.forEach((name, index) => {
     const schema = SHEET_SCHEMAS[name];
     const sheet = ensureSheet_(ss, name, index + 1);
     ensureHeaderRow_(sheet, schema.headers);
     formatSheet_(sheet);
+    if (name === 'Field Trip Coverage Pool') formatFieldTripCoveragePoolSheet_(sheet);
   });
 
   seedLists_();
@@ -172,8 +191,8 @@ function setupCoverageWorkbook() {
     invalidateCoverageSheetCache_('Teacher Schedule');
     invalidateCoverageSheetCache_('Config');
   }
-  if (typeof markFieldTripCoverageCacheDirty_ === 'function') {
-    markFieldTripCoverageCacheDirty_();
+  if (typeof markFieldTripCoveragePoolDirty_ === 'function') {
+    markFieldTripCoveragePoolDirty_();
   }
   ss.toast('Coverage Scheduler workbook is ready.', APP_TITLE, 5);
 }
@@ -218,15 +237,39 @@ function formatSheet_(sheet) {
   for (let col = 1; col <= lastCol; col++) {
     sheet.setColumnWidth(col, 145);
   }
-  if (sheet.getName() === '_Preview' || sheet.getName() === 'Lists' || sheet.getName() === 'Config' || sheet.getName() === 'Field Trip Coverage Cache') {
+  if (sheet.getName() === '_Preview' || sheet.getName() === 'Lists' || sheet.getName() === 'Config') {
     return;
   }
   sheet.setRowHeights(1, Math.max(sheet.getMaxRows(), 2), 24);
 }
 
+function formatFieldTripCoveragePoolSheet_(sheet) {
+  if (!sheet) return;
+  if (sheet.isSheetHidden()) sheet.showSheet();
+  const headers = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0]
+    .map(value => String(value || '').trim());
+  const enabledCol = headers.indexOf('Enabled') + 1;
+  const priorityCol = headers.indexOf('Priority_Adjustment') + 1;
+
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(Math.min(4, sheet.getLastColumn()));
+  if (enabledCol) {
+    sheet.getRange(1, enabledCol).setBackground('#dcfce7').setNote('Front-office control: set Yes/No to include or exclude this candidate for this exact field-trip block.');
+    sheet.setColumnWidth(enabledCol, 95);
+  }
+  if (priorityCol) {
+    sheet.getRange(1, priorityCol).setBackground('#fef3c7').setNote('Front-office control: positive numbers raise this candidate in the ranking; negative numbers lower them. Hard eligibility rules still apply.');
+    sheet.setColumnWidth(priorityCol, 135);
+  }
+  ['Event_Name','Absent_Staff','Class','Candidate','Reason'].forEach(header => {
+    const col = headers.indexOf(header) + 1;
+    if (col) sheet.setColumnWidth(col, header === 'Reason' ? 260 : 170);
+  });
+}
+
 function hideHelperSheets_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  ['Lists', '_Preview', 'Field Trip Coverage Cache'].forEach(name => {
+  ['Lists', '_Preview'].forEach(name => {
     const sheet = ss.getSheetByName(name);
     if (sheet && !sheet.isSheetHidden()) sheet.hideSheet();
   });
@@ -298,6 +341,8 @@ function applyDataValidation_() {
 
   setValidationByHeader_('Daily Absences', 'Day', listRanges.Day);
   setValidationByHeader_('Daily Absences', 'Absence_Type', listRanges.AbsenceType);
+
+  setValidationByHeader_('Field Trip Coverage Pool', 'Enabled', listRanges.YesNo);
 }
 
 function buildListRanges_(listsSheet) {

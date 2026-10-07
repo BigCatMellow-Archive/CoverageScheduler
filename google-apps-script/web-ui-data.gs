@@ -284,6 +284,7 @@ function saveCoverageStaffFromWebUnlocked_(payload) {
   };
 
   setSheetRowObject_(sheet, targetRow, headers, aliasMap, rowObject);
+  markFieldTripCoveragePoolDirty_();
 
   if (originalName && originalName !== name) {
     renameCoverageAvailabilityRows_(originalName, name);
@@ -315,6 +316,7 @@ function deleteCoverageStaffFromWebUnlocked_(payload) {
       sheet.deleteRow(r + 1);
       incrementCoverageMetric_('sheetWrites');
       invalidateCoverageSheetCache_(sheetName);
+      markFieldTripCoveragePoolDirty_();
       break;
     }
   }

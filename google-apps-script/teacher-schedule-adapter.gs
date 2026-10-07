@@ -37,11 +37,17 @@ function setupCoverageWorkbookFromTeacherSchedule() {
 
   const inspection = validateTeacherScheduleSource_();
 
+  const legacyPool = ss.getSheetByName('Field Trip Coverage Cache');
+  if (legacyPool && !ss.getSheetByName('Field Trip Coverage Pool')) {
+    legacyPool.setName('Field Trip Coverage Pool');
+    legacyPool.clearContents();
+  }
+
   const managedSheets = [
     'Coverage Staff',
     'Substitute Availability',
     'Daily Absences',
-    'Field Trip Coverage Cache',
+    'Field Trip Coverage Pool',
     'Coverage Output',
     'Lists',
     'Config',
@@ -53,14 +59,15 @@ function setupCoverageWorkbookFromTeacherSchedule() {
     if (!sheet) sheet = ss.insertSheet(name);
     ensureHeaderRow_(sheet, SHEET_SCHEMAS[name].headers);
     formatSheet_(sheet);
+    if (name === 'Field Trip Coverage Pool') formatFieldTripCoveragePoolSheet_(sheet);
   });
 
   seedLists_();
   seedConfig_();
   applyDataValidation_();
   hideHelperSheets_();
-  if (typeof markFieldTripCoverageCacheDirty_ === 'function') {
-    markFieldTripCoverageCacheDirty_();
+  if (typeof markFieldTripCoveragePoolDirty_ === 'function') {
+    markFieldTripCoveragePoolDirty_();
   }
 
   if (typeof ensureStaffListForWeb_ === 'function') {
