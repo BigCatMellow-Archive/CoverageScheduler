@@ -105,7 +105,7 @@ If you copy the project to a different workbook, run **Set up workbook** from th
 
 ## Performance behavior
 
-The web app now treats each server call as one request snapshot: repeated reads of the same managed tab are served from memory for that request. `Teacher Schedule` and `Config` also use a short Apps Script cache that is invalidated by app writes and spreadsheet edits. Multi-day absence entry writes `Daily Absences` once for the whole selected range rather than rewriting it once per day.
+The web app now treats each server call as one request snapshot: repeated reads of the same managed tab are served from memory for that request. `Config` also uses a short Apps Script cache that is invalidated by app writes and spreadsheet edits. `Teacher Schedule` remains request-local only so schedule-aware dropdowns and eligibility checks use the exact live Sheet values. Multi-day absence entry writes `Daily Absences` once for the whole selected range rather than rewriting it once per day.
 
 Apps Script execution logs include a `[Coverage Performance]` JSON summary for each web endpoint. See [`../docs/PERFORMANCE.md`](../docs/PERFORMANCE.md) for details.
 
