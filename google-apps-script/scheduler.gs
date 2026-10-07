@@ -593,6 +593,8 @@ function deleteFieldTripUnlocked_(eventId) {
     if (String(values[r][eventIdCol] || '').trim() === id) {
       const trip = getFieldTripsInRange_('', '').find(item => item.eventId === id);
       sheet.deleteRow(r + 1);
+      incrementCoverageMetric_('sheetWrites');
+      invalidateCoverageSheetCache_('Field Trips');
       if (trip) invalidatePreviewForDateRange_(trip.startDate, trip.endDate);
       return { deleted: true, eventId: id };
     }
@@ -3886,5 +3888,7 @@ function backfillTeacherScheduleDerivedFields() {
   });
 
   sheet.getRange(2, 1, out.length, headers.length).setValues(out);
+  incrementCoverageMetric_('sheetWrites');
+  invalidateCoverageSheetCache_('Teacher Schedule');
 }
 
