@@ -316,6 +316,8 @@ function applyDataValidation_() {
 
   setValidationByHeader_('Daily Absences', 'Day', listRanges.Day);
   setValidationByHeader_('Daily Absences', 'Absence_Type', listRanges.AbsenceType);
+
+  setValidationByHeader_('Field Trip Coverage Pool', 'Enabled', listRanges.YesNo);
 }
 
 function buildListRanges_(listsSheet) {
