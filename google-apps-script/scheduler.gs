@@ -2284,6 +2284,11 @@ function generateCoveragePreview(payload) {
   coveragePerfMark_('snapshot-loaded');
 
   const config = getConfigMap_();
+  const teacherSchedule = filterTeacherScheduleForDate_(
+    readSheetObjects_('Teacher Schedule'),
+    date,
+    config
+  );
   const configuredCoverageStaff = getCoverageStaffForDate_(date, day, config);
   const activeCoverageStaff = configuredCoverageStaff.filter(row => row.name && row.activeToday);
   const absences = getDailyAbsencesForDate_(date, day);
@@ -3599,11 +3604,6 @@ function getFieldTripCoverageStaffForDate_(date, day) {
   if (!fieldTrips.length) return [];
 
   const config = getConfigMap_();
-  const teacherSchedule = filterTeacherScheduleForDate_(
-    readSheetObjects_('Teacher Schedule'),
-    date,
-    config
-  );
   const configuredCoverageStaff = getCoverageStaffForDate_(date, day, config);
   const activeCoverageStaff = configuredCoverageStaff.filter(row => row.name && row.activeToday);
   return buildFieldTripCoverageCandidatesFromCache_(
