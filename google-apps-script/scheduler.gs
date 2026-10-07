@@ -485,6 +485,14 @@ function getCoverageStaffSheetName_() {
   throw new Error('Missing sheet: Coverage Staff (or Substitutes)');
 }
 
+// Compatibility helper for deployments or performance code that ask for the
+// Teacher Schedule through a named cached-read path. The canonical sheet reader
+// remains readSheetObjects_(), so this stays correct whether caching is enabled
+// there or not.
+function readTeacherScheduleCached_() {
+  return readSheetObjects_('Teacher Schedule');
+}
+
 function getAllSchedulableStaff_(dayCode, date) {
   const config = getConfigMap_();
   const rows = date
