@@ -1,4 +1,4 @@
-const COVERAGE_WEB_API_VERSION = 7;
+const COVERAGE_WEB_API_VERSION = 8;
 
 const APP_TITLE = 'Coverage Scheduler';
 const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
@@ -526,6 +526,17 @@ function webGetBootstrap(payload) {
   });
 }
 
+function webGetStaffSchedule(payload) {
+  return runCoverageWebRequest_('webGetStaffSchedule', () => {
+    payload = payload || {};
+    return makeWebSafe_(getWebStaffSchedule_(
+      payload.staffName,
+      payload.date,
+      payload.day
+    ));
+  });
+}
+
 function webSaveFieldTrip(payload) {
   return runCoverageWebRequest_('webSaveFieldTrip', () => makeWebSafe_(saveFieldTrip_(payload || {})));
 }
@@ -779,7 +790,6 @@ function getCoverageBootstrap_(payload) {
   const dayCode = payload.day || guessDayCodeFromDate_(today);
 
   primeCoverageRequestSnapshot_([
-    'Teacher Schedule',
     getCoverageStaffSheetName_(),
     'Substitute Availability',
     'Daily Absences',
@@ -792,9 +802,9 @@ function getCoverageBootstrap_(payload) {
   return {
     today: today,
     day: dayCode,
-    allStaff: typeof getWebStaffRoster_ === 'function'
-      ? getWebStaffRoster_(dayCode)
-      : getAllSchedulableStaff_(dayCode, today),
+    allStaff: typeof getWebStaffRosterSummary_ === 'function'
+      ? getWebStaffRosterSummary_()
+      : [],
     allCoverageStaff: getAllCoverageStaff_(today, dayCode),
     fieldTripCoverageStaff: getFieldTripCoverageStaffForDate_(today, dayCode),
     currentAbsences: getDailyAbsencesForDate_(today, dayCode),
