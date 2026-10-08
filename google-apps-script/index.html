@@ -137,7 +137,7 @@
 <div id="blockModal" class="overlay hidden"><div class="modal modal-lg"><div class="m-hd"><h2>Reassign Block</h2><button class="m-x" data-close="blockModal">×</button></div><div class="m-body"><div id="blockInfo" class="block-info"></div><div class="fg"><label class="fl">Assign Coverage To</label><select id="blockCoverage" class="fs"></select><div id="blockCoverageHint" class="hint">Only staff who are actually available for this exact block will appear.</div><div id="blockCoverageSchedule" class="mini-tl"></div></div></div><div class="m-ft"><div class="sp-r"></div><button class="btn-cancel" data-close="blockModal">Cancel</button><button id="saveBlockBtn" class="btn-save">Save Assignment</button></div></div></div>
 
 <script>
-const REQUIRED_WEB_API_VERSION=10;
+const REQUIRED_WEB_API_VERSION=11;
 const S={date:'',day:'',allStaff:[],coverage:[],fieldTripCoverage:[],absences:[],fieldTrips:[],plan:[],view:'timeline',generating:false,editingAbsence:null,editingAbsenceIndex:null,editingCoverage:null,editingBlock:null,blockSchedules:{},pendingDelete:null,scheduleCache:{},schedulePromises:{}};
 const $=id=>document.getElementById(id);
 const DAY_NAMES={M:'Monday',T:'Tuesday',W:'Wednesday',R:'Thursday',F:'Friday'};
