@@ -93,11 +93,35 @@ assert(
 const poolRefresh = functionBody(sources['scheduler.gs'], 'ensureFieldTripCoveragePoolFresh_');
 assert(
   poolRefresh.includes('withCoverageLock_'),
-  'automatic field-trip pool rebuild must be serialized'
+  'full field-trip pool rebuild must be serialized'
 );
 assert(
   poolRefresh.includes('fieldTripCoveragePoolIsDirty_'),
-  'automatic field-trip pool rebuild must re-check freshness'
+  'full field-trip pool rebuild must re-check freshness'
+);
+
+const datePoolRefresh = functionBody(sources['scheduler.gs'], 'fieldTripCoveragePoolRowsForDate_');
+assert(
+  datePoolRefresh.includes('withCoverageLock_'),
+  'interactive date pool refresh must be serialized'
+);
+assert(
+  datePoolRefresh.includes('rebuildFieldTripCoveragePoolForDate_'),
+  'interactive Generate must rebuild only the requested date when stale'
+);
+assert(
+  !datePoolRefresh.includes('rebuildAllFieldTripCoveragePool_'),
+  'interactive Generate must not trigger a full-workbook pool rebuild'
+);
+
+const targetedPoolRebuild = functionBody(sources['scheduler.gs'], 'rebuildFieldTripCoveragePoolForDate_');
+assert(
+  targetedPoolRebuild.includes('getFieldTripsForDate_'),
+  'targeted pool rebuild must limit itself to field trips active on the requested date'
+);
+assert(
+  targetedPoolRebuild.includes('markFieldTripCoveragePoolDateFresh_'),
+  'targeted pool rebuild must mark only the requested date revision fresh'
 );
 
 assert(
