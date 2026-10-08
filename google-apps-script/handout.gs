@@ -2,15 +2,31 @@ const FIELD_TRIP_HANDOUT_MODULE_VERSION = 2;
 
 function createCoverageHandoutDocWideFromLatestPreview_() {
   const preview = getLatestPreview_();
-  const rows = (preview.rows || []).filter(r => String(r.Status || '').trim() === 'Assigned');
-
-  if (!rows.length) {
-    throw new Error('No assigned preview rows found to build handouts.');
+  const planRows = preview.rows || [];
+  if (!planRows.length) {
+    throw new Error('No preview rows found to build handouts.');
   }
 
-  const date = normalizeDateKey_(rows[0].Date) || Utilities.formatDate(new Date(), coverageTimeZone_(), 'yyyy-MM-dd');
-  const day = String(rows[0].Day || '').trim();
-  return createCoverageHandoutPackage_(rows, date, day);
+  const date = normalizeDateKey_(planRows[0].Date) || Utilities.formatDate(new Date(), coverageTimeZone_(), 'yyyy-MM-dd');
+  const day = String(planRows[0].Day || guessDayCodeFromDate_(date) || '').trim();
+  if (!date || !day) throw new Error('The preview does not have a valid date.');
+  if (planRows.some(row => normalizeDateKey_(row.Date) !== date)) {
+    throw new Error('A handout can only be created for one date at a time.');
+  }
+
+  // Creating a handout is independent from Save Plan, but it must meet the
+  // same live safety rules. Refuse stale/invalid assignments instead of
+  // printing a plan that Save would reject.
+  validateCoveragePlanForSave_(date, day, planRows);
+
+  const assignedRows = planRows.filter(row =>
+    String(row.Status || '').trim() === 'Assigned' &&
+    String(row.Assigned_Coverage || '').trim()
+  );
+  if (!assignedRows.length) {
+    throw new Error('No assigned preview rows found to build handouts.');
+  }
+  return createCoverageHandoutPackage_(assignedRows, date, day);
 }
 
 function createCoverageHandoutPackage_(rows, date, day) {

@@ -1,4 +1,4 @@
-const COVERAGE_WEB_API_VERSION = 11;
+const COVERAGE_WEB_API_VERSION = 12;
 
 const APP_TITLE = 'Coverage Scheduler';
 const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
@@ -753,18 +753,25 @@ function webCreateHandout() {
 function webCreateHandoutFromRows(rows) {
   return runCoverageWebRequest_('webCreateHandoutFromRows', () => {
     const planRows = rows || [];
+    if (!planRows.length) throw new Error('No reviewed coverage rows are available for a handout.');
+
+    const date = normalizeDateKey_(planRows[0].Date);
+    const day = String(planRows[0].Day || guessDayCodeFromDate_(date) || '').trim();
+    if (!date || !day) throw new Error('The reviewed plan does not have a valid date.');
+    if (planRows.some(row => normalizeDateKey_(row.Date) !== date)) {
+      throw new Error('A handout can only be created for one date at a time.');
+    }
+
+    // Handout creation remains independent from Save Plan, but it must pass
+    // the same live validation so stale browser state can never be printed.
+    validateCoveragePlanForSave_(date, day, planRows);
+
     const assignedRows = planRows.filter(row =>
       String(row.Status || '').trim() === 'Assigned' &&
       String(row.Assigned_Coverage || '').trim()
     );
     if (!assignedRows.length) throw new Error('No assigned coverage rows are available for a handout.');
 
-    const date = normalizeDateKey_(assignedRows[0].Date);
-    const day = String(assignedRows[0].Day || guessDayCodeFromDate_(date) || '').trim();
-    if (!date || !day) throw new Error('The reviewed plan does not have a valid date.');
-    if (assignedRows.some(row => normalizeDateKey_(row.Date) !== date)) {
-      throw new Error('A handout can only be created for one date at a time.');
-    }
     return makeWebSafe_(createCoverageHandoutPackage_(assignedRows, date, day));
   });
 }
