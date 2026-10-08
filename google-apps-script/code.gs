@@ -1,4 +1,4 @@
-const COVERAGE_WEB_API_VERSION = 10;
+const COVERAGE_WEB_API_VERSION = 11;
 
 const APP_TITLE = 'Coverage Scheduler';
 const COVERAGE_SPREADSHEET_PROPERTY = 'COVERAGE_SPREADSHEET_ID';
@@ -510,6 +510,13 @@ function makeWebSafe_(value) {
 
 function webGetBootstrap(payload) {
   return runCoverageWebRequest_('webGetBootstrap', () => {
+    if (typeof FIELD_TRIP_HANDOUT_MODULE_VERSION === 'undefined' ||
+        FIELD_TRIP_HANDOUT_MODULE_VERSION !== 2) {
+      throw new Error(
+        'Coverage Scheduler deployment is out of sync: handout.gs is not the current compact field-trip form module. Deploy every file in google-apps-script together as one new version.'
+      );
+    }
+
     const data = getCoverageBootstrap_(payload || {});
     if (!data) throw new Error('Coverage Scheduler could not build its startup data.');
 

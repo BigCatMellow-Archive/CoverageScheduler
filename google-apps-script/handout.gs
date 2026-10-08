@@ -1,3 +1,5 @@
+const FIELD_TRIP_HANDOUT_MODULE_VERSION = 2;
+
 function createCoverageHandoutDocWideFromLatestPreview_() {
   const preview = getLatestPreview_();
   const rows = (preview.rows || []).filter(r => String(r.Status || '').trim() === 'Assigned');
@@ -230,6 +232,14 @@ function createFieldTripCoverageFormDocs_(rows, trip, date, day, context, templa
     removeTrailingUnusedFieldTripForm_(body);
   }
 
+  const remainingTables = body.getTables().length;
+  if (remainingTables !== formUnits.length) {
+    throw new Error(
+      'Field trip form compaction failed: expected ' + formUnits.length +
+      ' filled table(s), found ' + remainingTables + '.'
+    );
+  }
+
   doc.saveAndClose();
 
   return [{
@@ -293,6 +303,7 @@ function fillFieldTripForm_(body, formIndex, formUnit, trip, date, context) {
   insertFieldTripTemplateValue_(body, 'TRIP DESTINATION:', formIndex, fieldTripHandoutDestination_(trip));
   insertFieldTripTemplateValue_(body, 'DEPARTURE TIME:', formIndex, trip.start || '');
   insertFieldTripTemplateValue_(body, 'APPROXIMATE RETURN TIME:', formIndex, trip.end || '');
+  compactFieldTripTimeLine_(body, formIndex);
 
   const table = body.getTables()[formIndex];
   const formRows = formUnit.rows || [];
@@ -316,6 +327,25 @@ function fillFieldTripForm_(body, formIndex, formUnit, trip, date, context) {
   while (table.getNumRows() > formRows.length + 1) {
     table.removeRow(table.getNumRows() - 1);
   }
+
+  if (table.getNumRows() !== formRows.length + 1) {
+    throw new Error('Field trip form could not remove unused assignment rows.');
+  }
+}
+
+function compactFieldTripTimeLine_(body, occurrence) {
+  const paragraphs = body.getParagraphs().filter(paragraph => {
+    const text = String(paragraph.getText() || '');
+    return text.indexOf('DEPARTURE TIME:') !== -1 &&
+      text.indexOf('APPROXIMATE RETURN TIME:') !== -1;
+  });
+
+  if (paragraphs.length <= occurrence) return;
+
+  // The source template uses a long tab run between the two time fields.
+  // Once values are inserted, that run can wrap the return time to a second
+  // line. Shorten only that spacer in the generated copy.
+  paragraphs[occurrence].editAsText().replaceText('\\t{4,}', '\t\t\t');
 }
 
 function fieldTripHandoutDestination_(trip) {
