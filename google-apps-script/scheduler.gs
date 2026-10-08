@@ -142,6 +142,8 @@ const COVERAGE_PERSISTENT_CACHE_KEYS_ = {
 
 const FIELD_TRIP_COVERAGE_POOL_SHEET_ = 'Field Trip Coverage Pool';
 const FIELD_TRIP_COVERAGE_POOL_DIRTY_PROPERTY_ = 'FIELD_TRIP_COVERAGE_POOL_DIRTY';
+const FIELD_TRIP_COVERAGE_POOL_REVISION_PROPERTY_ = 'FIELD_TRIP_COVERAGE_POOL_REVISION';
+const FIELD_TRIP_COVERAGE_POOL_DATE_REVISION_PREFIX_ = 'FIELD_TRIP_COVERAGE_POOL_DATE_REVISION:';
 
 let COVERAGE_REQUEST_SHEET_CACHE_ = {};
 let COVERAGE_REQUEST_METRICS_ = null;
@@ -961,8 +963,12 @@ function buildFieldTripParticipantAbsences_(fieldTrips, teacherSchedule, day) {
 }
 
 function markFieldTripCoveragePoolDirty_() {
-  PropertiesService.getScriptProperties()
-    .setProperty(FIELD_TRIP_COVERAGE_POOL_DIRTY_PROPERTY_, '1');
+  const properties = PropertiesService.getScriptProperties();
+  properties.setProperty(FIELD_TRIP_COVERAGE_POOL_DIRTY_PROPERTY_, '1');
+  properties.setProperty(
+    FIELD_TRIP_COVERAGE_POOL_REVISION_PROPERTY_,
+    Utilities.getUuid()
+  );
   invalidateCoverageSheetCache_(FIELD_TRIP_COVERAGE_POOL_SHEET_);
 }
 
@@ -974,6 +980,37 @@ function clearFieldTripCoveragePoolDirty_() {
 function fieldTripCoveragePoolIsDirty_() {
   return PropertiesService.getScriptProperties()
     .getProperty(FIELD_TRIP_COVERAGE_POOL_DIRTY_PROPERTY_) === '1';
+}
+
+function fieldTripCoveragePoolRevision_() {
+  const properties = PropertiesService.getScriptProperties();
+  let revision = properties.getProperty(FIELD_TRIP_COVERAGE_POOL_REVISION_PROPERTY_);
+  if (!revision) {
+    revision = Utilities.getUuid();
+    properties.setProperty(FIELD_TRIP_COVERAGE_POOL_REVISION_PROPERTY_, revision);
+  }
+  return revision;
+}
+
+function fieldTripCoveragePoolDateRevisionKey_(date) {
+  return FIELD_TRIP_COVERAGE_POOL_DATE_REVISION_PREFIX_ + normalizeDateKey_(date);
+}
+
+function fieldTripCoveragePoolDateIsFresh_(date) {
+  const key = normalizeDateKey_(date);
+  if (!key || !fieldTripCoveragePoolIsDirty_()) return true;
+  const properties = PropertiesService.getScriptProperties();
+  return properties.getProperty(fieldTripCoveragePoolDateRevisionKey_(key)) ===
+    fieldTripCoveragePoolRevision_();
+}
+
+function markFieldTripCoveragePoolDateFresh_(date) {
+  const key = normalizeDateKey_(date);
+  if (!key) return;
+  PropertiesService.getScriptProperties().setProperty(
+    fieldTripCoveragePoolDateRevisionKey_(key),
+    fieldTripCoveragePoolRevision_()
+  );
 }
 
 function ensureFieldTripCoveragePoolSheet_() {
@@ -1261,6 +1298,33 @@ function removeFieldTripCoveragePoolForEvent_(eventId) {
   );
 }
 
+function rebuildFieldTripCoveragePoolForDate_(date) {
+  const key = normalizeDateKey_(date);
+  if (!key) return [];
+
+  ensureFieldTripCoveragePoolSheet_();
+  const existing = readSheetObjects_(FIELD_TRIP_COVERAGE_POOL_SHEET_);
+  const trips = getFieldTripsForDate_(key);
+  const eventIds = new Set(trips.map(trip => String(trip.eventId || '').trim()).filter(Boolean));
+
+  // Replace only the events active on the requested date. A multi-day trip is
+  // rebuilt as a whole so its other dates stay internally consistent.
+  let kept = existing.filter(row => !eventIds.has(String(row.Event_ID || '').trim()));
+  let rebuilt = [];
+  trips.forEach(trip => {
+    rebuilt = rebuilt.concat(fieldTripCoveragePoolRowsForTrip_(trip, existing));
+  });
+
+  rewriteSheetRows_(
+    FIELD_TRIP_COVERAGE_POOL_SHEET_,
+    SHEET_SCHEMAS[FIELD_TRIP_COVERAGE_POOL_SHEET_].headers,
+    sortFieldTripCoveragePoolRows_(kept.concat(rebuilt))
+  );
+  markFieldTripCoveragePoolDateFresh_(key);
+  coveragePerfMark_('field-trip-pool-date-rebuilt');
+  return rebuilt.filter(row => normalizeDateKey_(row.Date) === key);
+}
+
 function rebuildAllFieldTripCoveragePool_() {
   ensureFieldTripCoveragePoolSheet_();
   const trips = getFieldTripsInRange_('', '');
@@ -1286,10 +1350,9 @@ function ensureFieldTripCoveragePoolFresh_() {
     return readSheetObjects_(FIELD_TRIP_COVERAGE_POOL_SHEET_);
   }
 
-  // Pool rebuilds are read-modify-write operations over operator-editable rows.
-  // Serialize automatic refreshes with all other Coverage Scheduler writes.
-  // Re-check after acquiring the lock because another request may have rebuilt
-  // the pool while this execution was waiting.
+  // Full rebuild remains available from the spreadsheet menu. Interactive
+  // Generate uses fieldTripCoveragePoolRowsForDate_() so it never rebuilds the
+  // entire workbook just because one source sheet changed.
   return withCoverageLock_(() => {
     const current = SpreadsheetApp.getActiveSpreadsheet();
     if (current.getSheetByName(FIELD_TRIP_COVERAGE_POOL_SHEET_) && !fieldTripCoveragePoolIsDirty_()) {
@@ -1302,8 +1365,27 @@ function ensureFieldTripCoveragePoolFresh_() {
 function fieldTripCoveragePoolRowsForDate_(date) {
   const key = normalizeDateKey_(date);
   if (!key) return [];
-  return ensureFieldTripCoveragePoolFresh_()
-    .filter(row => normalizeDateKey_(row.Date) === key);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const hasSheet = !!ss.getSheetByName(FIELD_TRIP_COVERAGE_POOL_SHEET_);
+  if (hasSheet && fieldTripCoveragePoolDateIsFresh_(key)) {
+    return readSheetObjects_(FIELD_TRIP_COVERAGE_POOL_SHEET_)
+      .filter(row => normalizeDateKey_(row.Date) === key);
+  }
+
+  // Source/config changes invalidate the pool globally, but Generate only needs
+  // one date. Rebuild that date under the existing re-entrant lock, then remember
+  // its revision so repeated Generate clicks remain fast while other dates stay
+  // correctly marked stale until they are used.
+  return withCoverageLock_(() => {
+    const current = SpreadsheetApp.getActiveSpreadsheet();
+    if (current.getSheetByName(FIELD_TRIP_COVERAGE_POOL_SHEET_) &&
+        fieldTripCoveragePoolDateIsFresh_(key)) {
+      return readSheetObjects_(FIELD_TRIP_COVERAGE_POOL_SHEET_)
+        .filter(row => normalizeDateKey_(row.Date) === key);
+    }
+    return rebuildFieldTripCoveragePoolForDate_(key);
+  });
 }
 
 function fieldTripCoveragePoolEntriesForBlock_(poolRows, eventId, absentName, block) {
