@@ -1282,10 +1282,21 @@ function rebuildAllFieldTripCoveragePool_() {
 
 function ensureFieldTripCoveragePoolFresh_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss.getSheetByName(FIELD_TRIP_COVERAGE_POOL_SHEET_) || fieldTripCoveragePoolIsDirty_()) {
-    return rebuildAllFieldTripCoveragePool_();
+  if (ss.getSheetByName(FIELD_TRIP_COVERAGE_POOL_SHEET_) && !fieldTripCoveragePoolIsDirty_()) {
+    return readSheetObjects_(FIELD_TRIP_COVERAGE_POOL_SHEET_);
   }
-  return readSheetObjects_(FIELD_TRIP_COVERAGE_POOL_SHEET_);
+
+  // Pool rebuilds are read-modify-write operations over operator-editable rows.
+  // Serialize automatic refreshes with all other Coverage Scheduler writes.
+  // Re-check after acquiring the lock because another request may have rebuilt
+  // the pool while this execution was waiting.
+  return withCoverageLock_(() => {
+    const current = SpreadsheetApp.getActiveSpreadsheet();
+    if (current.getSheetByName(FIELD_TRIP_COVERAGE_POOL_SHEET_) && !fieldTripCoveragePoolIsDirty_()) {
+      return readSheetObjects_(FIELD_TRIP_COVERAGE_POOL_SHEET_);
+    }
+    return rebuildAllFieldTripCoveragePool_();
+  });
 }
 
 function fieldTripCoveragePoolRowsForDate_(date) {
