@@ -345,7 +345,7 @@ function compactFieldTripTimeLine_(body, occurrence) {
   // The source template uses a long tab run between the two time fields.
   // Once values are inserted, that run can wrap the return time to a second
   // line. Shorten only that spacer in the generated copy.
-  paragraphs[occurrence].editAsText().replaceText('\\t{4,}', '\\t\\t\\t');
+  paragraphs[occurrence].editAsText().replaceText('\\t{4,}', '\t\t\t');
 }
 
 function fieldTripHandoutDestination_(trip) {
